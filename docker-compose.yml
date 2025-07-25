@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: arxiv-postgres
+    environment:
+      POSTGRES_DB: arxiv_automation
+      POSTGRES_USER: arxiv_user
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - arxiv_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arxiv_user -d arxiv_automation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Development container with Python 3.12
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: arxiv-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: arxiv_automation
+      DB_USER: arxiv_user
+      DB_PASSWORD: dev_password
+    volumes:
+      - .:/app
+    profiles:
+      - dev
+
+volumes:
+  arxiv_data:
