@@ -93,3 +93,25 @@ class EmbeddingType(str, Enum):
     TITLE_ABSTRACT = "title_abstract"
     FULL_TEXT = "full_text"
     INSIGHTS_SUMMARY = "insights_summary"
+
+
+class NoteType(str, Enum):
+    """Types of notes."""
+    GENERAL = "general"
+    ANNOTATION = "annotation"
+    QUOTE = "quote"
+    SUMMARY = "summary"
+    QUESTION = "question"
+    INSIGHT = "insight"
+    CRITICISM = "criticism"
+    CONNECTION = "connection"
+    TODO = "todo"
+    DEFINITION = "definition"
+
+
+class NotePriority(str, Enum):
+    """Priority levels for notes."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
