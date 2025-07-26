@@ -110,6 +110,34 @@ class TagRepository(BaseRepository[Tag]):
         
         return hierarchy
 
+    async def count_tags(self) -> int:
+        """Get total count of tags."""
+        query = "SELECT COUNT(*) FROM tags"
+        
+        async with db_manager.get_connection() as conn:
+            result = await conn.fetchval(query)
+            return result or 0
+
+    async def get_top_tags(self, limit: int = 10) -> List[Tag]:
+        """Get top tags by usage count."""
+        query = """
+            SELECT t.*, COUNT(pt.tag_id) as usage_count
+            FROM tags t
+            LEFT JOIN paper_tags pt ON t.id = pt.tag_id
+            GROUP BY t.id, t.name, t.category, t.description, t.parent_tag_id, t.created_at
+            ORDER BY usage_count DESC
+            LIMIT $1
+        """
+        
+        async with db_manager.get_connection() as conn:
+            rows = await conn.fetch(query, limit)
+            tags = []
+            for row in rows:
+                tag = self._from_row(dict(row))
+                tag.usage_count = row['usage_count']
+                tags.append(tag)
+            return tags
+
 
 class PaperTagRepository(BaseRepository[PaperTag]):
     """Repository for paper-tag associations."""

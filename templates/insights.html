@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}Insights - ArXiv Content Automation{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="bg-white rounded-lg shadow-sm p-6">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Research Insights</h1>
+        <p class="text-gray-600">Explore extracted insights from your research papers</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow-sm p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label for="type-filter" class="block text-sm font-medium text-gray-700 mb-1">Insight Type</label>
+                <select id="type-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Types</option>
+                    <option value="methodology">Methodology</option>
+                    <option value="finding">Finding</option>
+                    <option value="limitation">Limitation</option>
+                    <option value="future_work">Future Work</option>
+                </select>
+            </div>
+            <div>
+                <label for="confidence-filter" class="block text-sm font-medium text-gray-700 mb-1">Min Confidence</label>
+                <select id="confidence-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">Any Confidence</option>
+                    <option value="0.9">90%+</option>
+                    <option value="0.8">80%+</option>
+                    <option value="0.7">70%+</option>
+                    <option value="0.6">60%+</option>
+                </select>
+            </div>
+            <div>
+                <label for="sort-by" class="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+                <select id="sort-by" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="confidence">Confidence (High to Low)</option>
+                    <option value="created_at">Date Created</option>
+                    <option value="type">Type</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights List -->
+    <div class="bg-white rounded-lg shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-gray-900">Insights</h3>
+                <div class="text-sm text-gray-600">
+                    <span id="insights-count">Loading...</span> insights found
+                </div>
+            </div>
+        </div>
+        
+        <div id="insights-list" class="divide-y divide-gray-200">
+            <!-- Insights will be loaded here -->
+        </div>
+
+        <!-- Pagination -->
+        <div class="px-6 py-4 border-t border-gray-200">
+            <div class="flex justify-between items-center">
+                <div class="text-sm text-gray-600">
+                    Showing <span id="showing-start">0</span> to <span id="showing-end">0</span> of <span id="total-insights">0</span> insights
+                </div>
+                <div class="flex space-x-2">
+                    <button id="prev-page" class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Previous
+                    </button>
+                    <span id="current-page" class="px-3 py-1 text-sm text-gray-600">1</span>
+                    <button id="next-page" class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Next
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let currentFilters = {
+    insight_type: '',
+    min_confidence: '',
+    sort_by: 'confidence'
+};
+
+// Load insights
+async function loadInsights(page = 1) {
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            per_page: 10,
+            ...currentFilters
+        });
+        
+        const data = await fetchAPI(`/insights/?${params}`);
+        displayInsights(data.insights);
+        updatePagination(data.total, data.page, data.per_page);
+        updateCounts(data.total);
+    } catch (error) {
+        console.error('Failed to load insights:', error);
+        document.getElementById('insights-list').innerHTML = 
+            '<div class="p-6 text-center text-red-600">Failed to load insights</div>';
+    }
+}
+
+// Display insights
+function displayInsights(insights) {
+    const container = document.getElementById('insights-list');
+    
+    if (!insights || insights.length === 0) {
+        container.innerHTML = '<div class="p-6 text-center text-gray-500">No insights found</div>';
+        return;
+    }
+
+    container.innerHTML = insights.map(insight => {
+        // Parse the content - it's stored as a Python dict string, not JSON
+        let contentObj = {};
+        let contentStr = insight.content || '';
+        
+        try {
+            if (typeof contentStr === 'string') {
+                // Handle Python dict string format (single quotes)
+                if (contentStr.trim().startsWith('{')) {
+                    // Convert Python dict string to JSON format
+                    const jsonStr = contentStr
+                        .replace(/'/g, '"')  // Replace single quotes with double quotes
+                        .replace(/True/g, 'true')  // Replace Python True with JSON true
+                        .replace(/False/g, 'false')  // Replace Python False with JSON false
+                        .replace(/None/g, 'null');  // Replace Python None with JSON null
+                    contentObj = JSON.parse(jsonStr);
+                }
+            } else if (typeof contentStr === 'object') {
+                contentObj = contentStr;
+            }
+        } catch (e) {
+            console.warn('Failed to parse insight content:', e);
+            // Fallback: treat the entire content as the key finding
+            contentObj = { significance: contentStr };
+        }
+        
+        // Extract the key finding from significance field
+        const keyFinding = contentObj.significance || insight.title || 'No key finding available';
+        
+        // Define the rubric sections in order
+        const rubricSections = [
+            { key: 'audience_hook', title: 'Audience Hook', description: 'Who this research is for and why they should care' },
+            { key: 'problem_solved', title: 'Problem Solved', description: 'The specific problem this research addresses' },
+            { key: 'practical_impact', title: 'Practical Impact', description: 'Real-world applications and benefits' },
+            { key: 'field_advancement', title: 'Field Advancement', description: 'How this advances the research field' },
+            { key: 'main_contribution', title: 'Main Contribution', description: 'The primary contribution of this work' },
+            { key: 'surprising_insight', title: 'Surprising Insight', description: 'Unexpected or counterintuitive findings' }
+        ];
+        
+        // Build the rubric sections HTML
+        const rubricHtml = rubricSections.map(section => {
+            const content = contentObj[section.key];
+            if (!content) return '';
+            
+            return `
+                <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                    <h4 class="font-semibold text-gray-900 mb-2">${section.title}</h4>
+                    <p class="text-sm text-gray-600 mb-1">${section.description}</p>
+                    <p class="text-gray-800 leading-relaxed">${content}</p>
+                </div>
+            `;
+        }).join('');
+        
+        return `
+            <div class="p-6 hover:bg-gray-50 transition-colors border-b border-gray-200">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex items-center gap-3">
+                        <span class="px-3 py-1 text-xs font-medium rounded-full ${getTypeColor(insight.insight_type)}">
+                            ${insight.insight_type.replace(/_/g, ' ').toUpperCase()}
+                        </span>
+                        ${insight.confidence ? `<span class="text-sm text-gray-600">Confidence: ${(insight.confidence * 100).toFixed(0)}%</span>` : ''}
+                    </div>
+                    <div class="ml-6 text-right text-sm text-gray-500">
+                        ${formatDate(insight.created_at)}
+                    </div>
+                </div>
+                
+                <!-- Key Finding (Main Content) -->
+                <div class="mb-6">
+                    <h3 class="text-xl font-semibold text-gray-900 mb-3">${insight.title}</h3>
+                </div>
+                
+                ${insight.description ? `<p class="text-gray-700 mb-4">${insight.description}</p>` : ''}
+                
+                <!-- Rubric Sections -->
+                ${rubricHtml ? `
+                    <div class="mt-6">
+                        <h4 class="text-md font-semibold text-gray-900 mb-4">Detailed Analysis</h4>
+                        ${rubricHtml}
+                    </div>
+                ` : ''}
+                
+                <!-- Paper Information -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <div class="flex items-center text-sm text-gray-600">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span class="mr-2">From paper:</span>
+                        ${insight.paper_title ? 
+                            `<a href="/papers/${insight.paper_id}" class="text-blue-600 hover:underline font-medium">${insight.paper_title}</a>` : 
+                            `<span class="text-gray-500">Paper ID: ${insight.paper_id}</span>`
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Get type color
+function getTypeColor(type) {
+    switch (type) {
+        case 'key_finding': return 'bg-green-100 text-green-800';
+        case 'methodology': return 'bg-blue-100 text-blue-800';
+        case 'finding': return 'bg-green-100 text-green-800';
+        case 'limitation': return 'bg-yellow-100 text-yellow-800';
+        case 'future_work': return 'bg-purple-100 text-purple-800';
+        case 'hypothesis': return 'bg-indigo-100 text-indigo-800';
+        case 'experiment': return 'bg-orange-100 text-orange-800';
+        case 'result': return 'bg-teal-100 text-teal-800';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+// Update pagination
+function updatePagination(total, page, perPage) {
+    totalPages = Math.ceil(total / perPage);
+    currentPage = page;
+    
+    document.getElementById('current-page').textContent = page;
+    document.getElementById('total-insights').textContent = total;
+    document.getElementById('showing-start').textContent = ((page - 1) * perPage) + 1;
+    document.getElementById('showing-end').textContent = Math.min(page * perPage, total);
+    
+    document.getElementById('prev-page').disabled = page <= 1;
+    document.getElementById('next-page').disabled = page >= totalPages;
+}
+
+// Update counts
+function updateCounts(total) {
+    document.getElementById('insights-count').textContent = total;
+}
+
+// Show insight details (placeholder)
+function showInsightDetails(insightId) {
+    alert(`Insight details for ${insightId} - This would open a detailed view`);
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    loadInsights();
+    
+    // Type filter
+    document.getElementById('type-filter').addEventListener('change', (e) => {
+        currentFilters.insight_type = e.target.value;
+        loadInsights(1);
+    });
+    
+    // Confidence filter
+    document.getElementById('confidence-filter').addEventListener('change', (e) => {
+        currentFilters.min_confidence = e.target.value;
+        loadInsights(1);
+    });
+    
+    // Sort by
+    document.getElementById('sort-by').addEventListener('change', (e) => {
+        currentFilters.sort_by = e.target.value;
+        loadInsights(1);
+    });
+    
+    // Pagination
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) {
+            loadInsights(currentPage - 1);
+        }
+    });
+    
+    document.getElementById('next-page').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            loadInsights(currentPage + 1);
+        }
+    });
+});
+</script>
+{% endblock %} 

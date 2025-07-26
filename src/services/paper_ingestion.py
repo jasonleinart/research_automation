@@ -23,7 +23,7 @@ class PaperIngestionService:
         self.paper_repo = PaperRepository()
     
     async def ingest_from_arxiv_url(self, url: str) -> Optional[Paper]:
-        """Ingest paper from ArXiv URL."""
+        """Ingest paper from ArXiv URL with full text extraction."""
         try:
             logger.info(f"Ingesting paper from ArXiv URL: {url}")
             
@@ -39,11 +39,17 @@ class PaperIngestionService:
                 logger.info(f"Paper already exists: {existing_paper.title}")
                 return existing_paper
             
-            # Fetch metadata from ArXiv
-            paper = await self.arxiv_client.get_paper_from_url(url)
+            # Fetch paper with full text from ArXiv
+            paper = await self.arxiv_client.get_paper_from_url(url, include_full_text=True)
             if not paper:
-                logger.error(f"Could not fetch paper metadata from ArXiv")
+                logger.error(f"Could not fetch paper from ArXiv")
                 return None
+            
+            # Log content extraction results
+            if paper.full_text:
+                logger.info(f"Successfully extracted {len(paper.full_text)} characters of full text")
+            else:
+                logger.warning(f"No full text extracted - only metadata available")
             
             # Save to database
             saved_paper = await self.paper_repo.create(paper)

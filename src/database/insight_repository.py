@@ -120,51 +120,79 @@ class InsightRepository(BaseRepository[Insight]):
     async def get_statistics(self) -> Dict[str, Any]:
         """Get insight statistics."""
         try:
-            stats_query = """
-                SELECT 
-                    COUNT(*) as total_insights,
-                    AVG(confidence) as avg_confidence,
-                    COUNT(DISTINCT paper_id) as papers_with_insights,
-                    COUNT(DISTINCT insight_type) as unique_types
-                FROM insights
-            """
-            
-            type_query = """
-                SELECT insight_type, COUNT(*) as count
-                FROM insights
-                GROUP BY insight_type
-                ORDER BY count DESC
-            """
-            
-            confidence_query = """
-                SELECT 
-                    COUNT(CASE WHEN confidence >= 0.8 THEN 1 END) as high_confidence,
-                    COUNT(CASE WHEN confidence >= 0.6 AND confidence < 0.8 THEN 1 END) as medium_confidence,
-                    COUNT(CASE WHEN confidence < 0.6 THEN 1 END) as low_confidence
-                FROM insights
-            """
-            
             async with db_manager.get_connection() as conn:
-                stats_row = await conn.fetchrow(stats_query)
+                # Total insights
+                total_query = "SELECT COUNT(*) FROM insights"
+                total = await conn.fetchval(total_query)
+                
+                # Insights by type
+                type_query = """
+                    SELECT insight_type, COUNT(*) as count
+                    FROM insights
+                    GROUP BY insight_type
+                """
                 type_rows = await conn.fetch(type_query)
-                confidence_row = await conn.fetchrow(confidence_query)
-            
-            return {
-                "total_insights": stats_row["total_insights"],
-                "avg_confidence": float(stats_row["avg_confidence"]) if stats_row["avg_confidence"] else 0,
-                "papers_with_insights": stats_row["papers_with_insights"],
-                "unique_types": stats_row["unique_types"],
-                "type_distribution": {row["insight_type"]: row["count"] for row in type_rows},
-                "confidence_distribution": {
-                    "high": confidence_row["high_confidence"],
-                    "medium": confidence_row["medium_confidence"],
-                    "low": confidence_row["low_confidence"]
+                insights_by_type = {row['insight_type']: row['count'] for row in type_rows}
+                
+                # Average confidence
+                avg_confidence_query = "SELECT AVG(confidence) FROM insights WHERE confidence IS NOT NULL"
+                avg_confidence = await conn.fetchval(avg_confidence_query)
+                
+                # High confidence insights
+                high_conf_query = "SELECT COUNT(*) FROM insights WHERE confidence >= 0.8"
+                high_confidence_count = await conn.fetchval(high_conf_query)
+                
+                return {
+                    'total': total or 0,
+                    'insights_by_type': insights_by_type,
+                    'avg_confidence': float(avg_confidence) if avg_confidence else 0.0,
+                    'high_confidence_count': high_confidence_count or 0
                 }
-            }
-            
+                
         except Exception as e:
             logger.error(f"Failed to get insight statistics: {e}")
-            return {}
+            return {
+                'total': 0,
+                'insights_by_type': {},
+                'avg_confidence': 0.0,
+                'high_confidence_count': 0
+            }
+
+    async def count_insights(self) -> int:
+        """Get total count of insights."""
+        query = "SELECT COUNT(*) FROM insights"
+        
+        async with db_manager.get_connection() as conn:
+            result = await conn.fetchval(query)
+            return result or 0
+
+    async def get_recent_insights(self, limit: Optional[int] = None) -> List[Insight]:
+        """Get recent insights."""
+        query = """
+            SELECT id, paper_id, insight_type, title, description, content, 
+                   confidence, extraction_method, created_at
+            FROM insights 
+            ORDER BY created_at DESC
+        """
+        
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        async with db_manager.get_connection() as conn:
+            rows = await conn.fetch(query)
+            return [self._row_to_model(row) for row in rows]
+
+    async def get_insights_by_type(self) -> Dict[str, int]:
+        """Get count of insights by type."""
+        query = """
+            SELECT insight_type, COUNT(*) as count
+            FROM insights
+            GROUP BY insight_type
+        """
+        
+        async with db_manager.get_connection() as conn:
+            rows = await conn.fetch(query)
+            return {row['insight_type']: row['count'] for row in rows}
     
     def _from_row(self, row) -> Insight:
         """Convert database row to Insight model."""

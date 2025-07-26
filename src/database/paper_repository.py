@@ -76,6 +76,19 @@ class PaperRepository(SearchableRepository[Paper]):
             row = await conn.fetchrow(query, arxiv_id)
             return self._from_row(dict(row)) if row else None
     
+    async def get_by_ids(self, paper_ids: List[UUID]) -> List[Paper]:
+        """Get multiple papers by their IDs."""
+        if not paper_ids:
+            return []
+        
+        # Build query with placeholders for each ID
+        placeholders = ','.join([f'${i+1}' for i in range(len(paper_ids))])
+        query = f"SELECT * FROM papers WHERE id IN ({placeholders})"
+        
+        async with db_manager.get_connection() as conn:
+            rows = await conn.fetch(query, *paper_ids)
+            return [self._from_row(dict(row)) for row in rows]
+    
     async def get_by_title(self, title: str) -> Optional[Paper]:
         """Get paper by exact title match."""
         query = "SELECT * FROM papers WHERE title = $1"
@@ -123,12 +136,12 @@ class PaperRepository(SearchableRepository[Paper]):
         return await self.get_by_status(AnalysisStatus.PENDING, limit=limit)
     
     async def get_recent_papers(self, days: int = 30, limit: Optional[int] = None) -> List[Paper]:
-        """Get recently added papers."""
-        query = """
-            SELECT * FROM papers
-            WHERE created_at >= NOW() - INTERVAL '%s days'
+        """Get recent papers from the last N days."""
+        query = f"""
+            SELECT * FROM papers 
+            WHERE created_at >= NOW() - INTERVAL '{days} days'
             ORDER BY created_at DESC
-        """ % days
+        """
         
         if limit:
             query += f" LIMIT {limit}"
@@ -136,6 +149,26 @@ class PaperRepository(SearchableRepository[Paper]):
         async with db_manager.get_connection() as conn:
             rows = await conn.fetch(query)
             return [self._from_row(dict(row)) for row in rows]
+
+    async def count_papers(self) -> int:
+        """Get total count of papers."""
+        query = "SELECT COUNT(*) FROM papers"
+        
+        async with db_manager.get_connection() as conn:
+            result = await conn.fetchval(query)
+            return result or 0
+
+    async def get_analysis_status_counts(self) -> Dict[str, int]:
+        """Get count of papers by analysis status."""
+        query = """
+            SELECT analysis_status, COUNT(*) as count
+            FROM papers
+            GROUP BY analysis_status
+        """
+        
+        async with db_manager.get_connection() as conn:
+            rows = await conn.fetch(query)
+            return {row['analysis_status']: row['count'] for row in rows}
     
     async def update_analysis_status(self, paper_id: UUID, status: AnalysisStatus, confidence: Optional[float] = None) -> Paper:
         """Update paper analysis status."""

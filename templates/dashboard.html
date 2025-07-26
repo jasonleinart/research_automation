@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Overview - ArXiv Content Automation{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="bg-white rounded-lg shadow-sm p-6">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard Overview</h1>
+        <p class="text-gray-600">Real-time insights into your research database</p>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-blue-100 text-blue-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Total Papers</p>
+                    <p class="text-2xl font-semibold text-gray-900" id="total-papers">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-green-100 text-green-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Total Insights</p>
+                    <p class="text-2xl font-semibold text-gray-900" id="total-insights">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-purple-100 text-purple-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Total Tags</p>
+                    <p class="text-2xl font-semibold text-gray-900" id="total-tags">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Completed Analysis</p>
+                    <p class="text-2xl font-semibold text-gray-900" id="completed-analyses">-</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Content -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Recent Papers -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Recent Papers</h3>
+            </div>
+            <div class="p-6" id="recent-papers">
+                <p class="text-gray-500">Loading...</p>
+            </div>
+        </div>
+        
+        <!-- Recent Insights -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Recent Insights</h3>
+            </div>
+            <div class="p-6" id="recent-insights">
+                <p class="text-gray-500">Loading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load dashboard data
+async function loadDashboard() {
+    try {
+        const data = await fetchAPI('/dashboard/overview');
+        displayStats(data.stats);
+        displayRecentPapers(data.stats.recent_papers);
+        displayRecentInsights(data.stats.recent_insights);
+    } catch (error) {
+        console.error('Failed to load dashboard:', error);
+        document.body.innerHTML += '<div class="fixed top-4 right-4 bg-red-500 text-white p-4 rounded">Failed to load dashboard data</div>';
+    }
+}
+
+// Display statistics cards
+function displayStats(stats) {
+    document.getElementById('total-papers').textContent = formatNumber(stats.total_papers);
+    document.getElementById('total-insights').textContent = formatNumber(stats.total_insights);
+    document.getElementById('total-tags').textContent = formatNumber(stats.total_tags);
+    document.getElementById('completed-analyses').textContent = formatNumber(stats.completed_analyses);
+}
+
+// Display recent papers
+function displayRecentPapers(papers) {
+    const container = document.getElementById('recent-papers');
+    if (!papers || papers.length === 0) {
+        container.innerHTML = '<p class="text-gray-500">No recent papers</p>';
+        return;
+    }
+
+    container.innerHTML = papers.map(paper => `
+        <div class="border-l-4 border-blue-500 pl-4 py-2 mb-3">
+            <h4 class="font-medium text-gray-900 truncate">${paper.title}</h4>
+            <p class="text-xs text-gray-500">${formatDate(paper.publication_date)}</p>
+        </div>
+    `).join('');
+}
+
+// Display recent insights
+function displayRecentInsights(insights) {
+    const container = document.getElementById('recent-insights');
+    if (!insights || insights.length === 0) {
+        container.innerHTML = '<p class="text-gray-500">No recent insights</p>';
+        return;
+    }
+
+    container.innerHTML = insights.map(insight => `
+        <div class="border-l-4 border-green-500 pl-4 py-2 mb-3">
+            <h4 class="font-medium text-gray-900 truncate">${insight.title}</h4>
+            <p class="text-sm text-gray-600">${insight.insight_type}</p>
+            <p class="text-xs text-gray-500">${formatDate(insight.created_at)}</p>
+        </div>
+    `).join('');
+}
+
+// Load dashboard on page load
+document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %} 

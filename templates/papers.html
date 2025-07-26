@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}Papers - ArXiv Content Automation{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="bg-white rounded-lg shadow-sm p-6">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Research Papers</h1>
+        <p class="text-gray-600">Browse and search through your research database</p>
+    </div>
+
+    <!-- Search and Filters -->
+    <div class="bg-white rounded-lg shadow-sm p-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="md:col-span-2">
+                <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                <input type="text" id="search" placeholder="Search papers by title or abstract..." 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label for="status-filter" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select id="status-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="manual_review">Manual Review</option>
+                    <option value="failed">Failed</option>
+                    <option value="pending">Pending</option>
+                </select>
+            </div>
+            <div>
+                <label for="type-filter" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select id="type-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Types</option>
+                    <option value="research">Research</option>
+                    <option value="review">Review</option>
+                    <option value="survey">Survey</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Papers List -->
+    <div class="bg-white rounded-lg shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-gray-900">Papers</h3>
+                <div class="text-sm text-gray-600">
+                    <span id="papers-count">Loading...</span> papers found
+                </div>
+            </div>
+        </div>
+        
+        <div id="papers-list" class="divide-y divide-gray-200">
+            <!-- Papers will be loaded here -->
+        </div>
+
+        <!-- Pagination -->
+        <div class="px-6 py-4 border-t border-gray-200">
+            <div class="flex justify-between items-center">
+                <div class="text-sm text-gray-600">
+                    Showing <span id="showing-start">0</span> to <span id="showing-end">0</span> of <span id="total-papers">0</span> papers
+                </div>
+                <div class="flex space-x-2">
+                    <button id="prev-page" class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Previous
+                    </button>
+                    <span id="current-page" class="px-3 py-1 text-sm text-gray-600">1</span>
+                    <button id="next-page" class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Next
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let currentFilters = {
+    search: '',
+    status: '',
+    type: ''
+};
+
+// Load papers
+async function loadPapers(page = 1) {
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            per_page: 10,
+            ...currentFilters
+        });
+        
+        const data = await fetchAPI(`/papers/?${params}`);
+        displayPapers(data.papers);
+        updatePagination(data.total, data.page, data.per_page);
+        updateCounts(data.total);
+    } catch (error) {
+        console.error('Failed to load papers:', error);
+        document.getElementById('papers-list').innerHTML = 
+            '<div class="p-6 text-center text-red-600">Failed to load papers</div>';
+    }
+}
+
+// Display papers
+function displayPapers(papers) {
+    const container = document.getElementById('papers-list');
+    
+    if (!papers || papers.length === 0) {
+        container.innerHTML = '<div class="p-6 text-center text-gray-500">No papers found</div>';
+        return;
+    }
+
+    container.innerHTML = papers.map(paper => `
+        <div class="p-6 hover:bg-gray-50 transition-colors">
+            <div class="flex justify-between items-start">
+                <div class="flex-1">
+                    <h4 class="text-lg font-semibold text-gray-900 mb-2">
+                        <a href="#" class="hover:text-blue-600" onclick="showPaperDetails('${paper.id}')">
+                            ${paper.title}
+                        </a>
+                    </h4>
+                    <p class="text-sm text-gray-600 mb-2">${paper.authors.join(', ')}</p>
+                    <p class="text-sm text-gray-500 mb-3">${paper.abstract.substring(0, 200)}${paper.abstract.length > 200 ? '...' : ''}</p>
+                    
+                    <div class="flex flex-wrap gap-2 mb-3">
+                        ${paper.categories.map(cat => 
+                            `<span class="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">${cat}</span>`
+                        ).join('')}
+                    </div>
+                    
+                    <div class="flex items-center space-x-4 text-sm text-gray-500">
+                        <span>📅 ${formatDate(paper.publication_date)}</span>
+                        <span>📊 ${paper.insights_count || 0} insights</span>
+                        <span>🏷️ ${paper.tags_count || 0} tags</span>
+                    </div>
+                </div>
+                
+                <div class="ml-4">
+                    <span class="px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(paper.analysis_status)}">
+                        ${paper.analysis_status}
+                    </span>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Get status color
+function getStatusColor(status) {
+    switch (status) {
+        case 'completed': return 'bg-green-100 text-green-800';
+        case 'manual_review': return 'bg-yellow-100 text-yellow-800';
+        case 'failed': return 'bg-red-100 text-red-800';
+        case 'pending': return 'bg-gray-100 text-gray-800';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+// Update pagination
+function updatePagination(total, page, perPage) {
+    totalPages = Math.ceil(total / perPage);
+    currentPage = page;
+    
+    document.getElementById('current-page').textContent = page;
+    document.getElementById('total-papers').textContent = total;
+    document.getElementById('showing-start').textContent = ((page - 1) * perPage) + 1;
+    document.getElementById('showing-end').textContent = Math.min(page * perPage, total);
+    
+    document.getElementById('prev-page').disabled = page <= 1;
+    document.getElementById('next-page').disabled = page >= totalPages;
+}
+
+// Update counts
+function updateCounts(total) {
+    document.getElementById('papers-count').textContent = total;
+}
+
+// Show paper details
+function showPaperDetails(paperId) {
+    window.location.href = `/papers/${paperId}`;
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    loadPapers();
+    
+    // Search input
+    let searchTimeout;
+    document.getElementById('search').addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            currentFilters.search = e.target.value;
+            loadPapers(1);
+        }, 300);
+    });
+    
+    // Status filter
+    document.getElementById('status-filter').addEventListener('change', (e) => {
+        currentFilters.status = e.target.value;
+        loadPapers(1);
+    });
+    
+    // Type filter
+    document.getElementById('type-filter').addEventListener('change', (e) => {
+        currentFilters.type = e.target.value;
+        loadPapers(1);
+    });
+    
+    // Pagination
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) {
+            loadPapers(currentPage - 1);
+        }
+    });
+    
+    document.getElementById('next-page').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            loadPapers(currentPage + 1);
+        }
+    });
+});
+</script>
+{% endblock %} 

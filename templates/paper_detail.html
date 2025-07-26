@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Paper Details{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="mb-6">
+        <a href="/papers" class="text-blue-600 hover:text-blue-800 flex items-center">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Back to Papers
+        </a>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading" class="text-center py-8">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p class="mt-4 text-gray-600">Loading paper details...</p>
+    </div>
+
+    <!-- Paper content -->
+    <div id="paper-content" class="hidden">
+        <!-- Paper header -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex-1">
+                    <h1 id="paper-title" class="text-3xl font-bold text-gray-900 mb-2"></h1>
+                    <div id="paper-authors" class="text-lg text-gray-700 mb-3"></div>
+                    <div class="flex items-center gap-4 text-sm text-gray-600">
+                        <span id="paper-date"></span>
+                        <span id="paper-type"></span>
+                        <span id="paper-citations"></span>
+                    </div>
+                </div>
+                <div class="ml-6">
+                    <span id="analysis-status" class="px-3 py-1 text-xs font-medium rounded-full"></span>
+                </div>
+            </div>
+            
+            <div id="paper-abstract" class="text-gray-700 leading-relaxed"></div>
+        </div>
+
+        <!-- Insights section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Insights</h2>
+            <div id="insights-list" class="space-y-4">
+                <!-- Insights will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Tags section -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Tags</h2>
+            <div id="tags-list" class="flex flex-wrap gap-2">
+                <!-- Tags will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error" class="hidden text-center py-8">
+        <div class="text-red-600 text-xl mb-2">Paper not found</div>
+        <p class="text-gray-600">The paper you're looking for doesn't exist or has been removed.</p>
+    </div>
+</div>
+
+<script>
+    const paperId = '{{ paper_id }}';
+
+    // Load paper details
+    async function loadPaperDetails() {
+        try {
+            const response = await fetchAPI(`/papers/${paperId}`);
+            const data = response.paper; // Access the nested paper data
+            
+            // Hide loading, show content
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('paper-content').classList.remove('hidden');
+            
+            // Populate paper information
+            document.getElementById('paper-title').textContent = data.title;
+            
+            // Handle authors
+            const authorsContainer = document.getElementById('paper-authors');
+            if (data.authors && data.authors.length > 0) {
+                const authorNames = data.authors.map(author => author.name).join(', ');
+                authorsContainer.textContent = `By ${authorNames}`;
+            } else {
+                authorsContainer.textContent = 'Authors not available';
+            }
+            
+            // Other paper details
+            document.getElementById('paper-date').textContent = `Published: ${formatDate(data.publication_date)}`;
+            document.getElementById('paper-type').textContent = `Type: ${data.paper_type || 'Unknown'}`;
+            document.getElementById('paper-citations').textContent = `Citations: ${formatNumber(data.citation_count || 0)}`;
+            document.getElementById('paper-abstract').textContent = data.abstract || 'No abstract available';
+            
+            // Analysis status
+            const statusElement = document.getElementById('analysis-status');
+            statusElement.textContent = data.analysis_status || 'Unknown';
+            statusElement.className = `px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(data.analysis_status)}`;
+            
+            // Load insights
+            if (response.insights && response.insights.length > 0) {
+                displayInsights(response.insights);
+            } else {
+                document.getElementById('insights-list').innerHTML = '<p class="text-gray-500">No insights available for this paper.</p>';
+            }
+            
+            // Load tags
+            if (response.tags && response.tags.length > 0) {
+                displayTags(response.tags);
+            } else {
+                document.getElementById('tags-list').innerHTML = '<p class="text-gray-500">No tags assigned to this paper.</p>';
+            }
+            
+        } catch (error) {
+            console.error('Failed to load paper details:', error);
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.remove('hidden');
+        }
+    }
+
+    // Display insights
+    function displayInsights(insights) {
+        const container = document.getElementById('insights-list');
+        
+        container.innerHTML = insights.map(insight => {
+            // Parse the content if it's a JSON string
+            let contentObj = {};
+            let contentStr = insight.content || '';
+            
+            try {
+                if (typeof contentStr === 'string') {
+                    // Handle Python dict string format (single quotes)
+                    if (contentStr.trim().startsWith('{')) {
+                        // Convert Python dict string to JSON format
+                        let jsonStr = contentStr
+                            .replace(/'/g, '"')
+                            .replace(/True/g, 'true')
+                            .replace(/False/g, 'false')
+                            .replace(/None/g, 'null');
+                        contentObj = JSON.parse(jsonStr);
+                    } else {
+                        contentObj = { significance: contentStr };
+                    }
+                } else if (typeof contentStr === 'object') {
+                    contentObj = contentStr;
+                }
+            } catch (e) {
+                console.error("Error parsing insight content:", e);
+                contentObj = { significance: contentStr };
+            }
+
+            const rubricFields = [
+                { key: 'audience_hook', title: 'Audience Hook' },
+                { key: 'problem_solved', title: 'Problem Solved' },
+                { key: 'practical_impact', title: 'Practical Impact' },
+                { key: 'evidence_strength', title: 'Evidence Strength' },
+                { key: 'limitations_and_scope', title: 'Limitations and Scope' },
+                { key: 'future_work', title: 'Future Work' },
+                { key: 'confidence_score_explanation', title: 'Confidence Score Explanation' }
+            ];
+
+            return `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="px-3 py-1 text-xs font-medium rounded-full ${getTypeColor(insight.insight_type)}">
+                                ${insight.insight_type.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                            ${insight.confidence ? `<span class="text-sm text-gray-600">Confidence: ${(insight.confidence * 100).toFixed(0)}%</span>` : ''}
+                        </div>
+                        <div class="text-sm text-gray-500">
+                            ${formatDate(insight.created_at)}
+                        </div>
+                    </div>
+                    
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">${insight.title}</h3>
+                    ${insight.description ? `<p class="text-gray-700 mb-3">${insight.description}</p>` : ''}
+                    
+                    <!-- Rubric Sections -->
+                    <div class="space-y-3">
+                        ${rubricFields.map(field => `
+                            ${contentObj[field.key] ? `
+                                <div class="bg-gray-100 p-3 rounded-md">
+                                    <h5 class="font-medium text-gray-700">${field.title}:</h5>
+                                    <p class="text-gray-600 text-sm">${contentObj[field.key]}</p>
+                                </div>
+                            ` : ''}
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Display tags
+    function displayTags(tags) {
+        const container = document.getElementById('tags-list');
+        
+        container.innerHTML = tags.map(tag => `
+            <span class="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                ${tag.name}
+            </span>
+        `).join('');
+    }
+
+    // Get status color
+    function getStatusColor(status) {
+        switch (status) {
+            case 'completed': return 'bg-green-100 text-green-800';
+            case 'manual_review': return 'bg-yellow-100 text-yellow-800';
+            case 'failed': return 'bg-red-100 text-red-800';
+            case 'pending': return 'bg-gray-100 text-gray-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    }
+
+    // Get type color
+    function getTypeColor(type) {
+        switch (type) {
+            case 'key_finding': return 'bg-green-100 text-green-800';
+            case 'methodology': return 'bg-blue-100 text-blue-800';
+            case 'finding': return 'bg-green-100 text-green-800';
+            case 'limitation': return 'bg-yellow-100 text-yellow-800';
+            case 'future_work': return 'bg-purple-100 text-purple-800';
+            case 'hypothesis': return 'bg-indigo-100 text-indigo-800';
+            case 'experiment': return 'bg-orange-100 text-orange-800';
+            case 'result': return 'bg-teal-100 text-teal-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    }
+
+    // Load paper details when page loads
+    document.addEventListener('DOMContentLoaded', loadPaperDetails);
+</script>
+{% endblock %} 

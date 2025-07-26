@@ -57,6 +57,19 @@ async def extract_insights_from_paper(paper_id: str):
                     else:
                         print(f"     {key}: {value}")
         
+        # Save insights to database
+        print(f"\n💾 Saving insights to database...")
+        insight_repo = InsightRepository()
+        saved_insights = []
+        for insight in insights:
+            try:
+                saved_insight = await insight_repo.create(insight)
+                saved_insights.append(saved_insight)
+            except Exception as e:
+                print(f"   ⚠️  Failed to save insight: {e}")
+        
+        print(f"   Saved {len(saved_insights)} insights to database")
+        
         # Create tags from insights
         print(f"\n🏷️  Creating tags from insights...")
         tags = await service.create_tags_from_insights(insights)
@@ -90,6 +103,7 @@ async def extract_from_all_classified():
     print(f"📚 Found {len(completed_papers)} classified papers")
     
     total_insights = 0
+    total_tags = 0
     for i, paper in enumerate(completed_papers, 1):
         print(f"\n📄 {i}/{len(completed_papers)}: {paper.title[:60]}...")
         
@@ -101,8 +115,21 @@ async def extract_from_all_classified():
         if insights:
             for insight in insights:
                 print(f"     - {insight.title} (confidence: {insight.confidence:.1%})")
+            
+            # Create tags from insights
+            print(f"   🏷️  Creating tags from insights...")
+            tags = await service.create_tags_from_insights(insights)
+            total_tags += len(tags)
+            
+            if tags:
+                print(f"   Created {len(tags)} tags:")
+                for tag in tags:
+                    print(f"     - {tag.name} ({tag.category.value})")
+            else:
+                print("   No tags created")
     
     print(f"\n📊 Total: {total_insights} insights extracted from {len(completed_papers)} papers")
+    print(f"🏷️  Total: {total_tags} tags created")
 
 async def list_available_rubrics():
     """List all available analysis rubrics."""

@@ -172,8 +172,8 @@ class ArxivClient:
             logger.error(f"Failed to search papers: {e}")
             return []
     
-    async def get_paper_from_url(self, url: str) -> Optional[Paper]:
-        """Get paper from ArXiv URL."""
+    async def get_paper_from_url(self, url: str, include_full_text: bool = True) -> Optional[Paper]:
+        """Get paper from ArXiv URL with optional full text extraction."""
         arxiv_id = self.extract_arxiv_id(url)
         if not arxiv_id:
             logger.error(f"Could not extract ArXiv ID from URL: {url}")
@@ -182,5 +182,45 @@ class ArxivClient:
         metadata = await self.get_paper_metadata(arxiv_id)
         if not metadata:
             return None
+        
+        # If full text is requested, download and extract PDF content
+        if include_full_text:
+            try:
+                logger.info(f"Downloading full PDF for {arxiv_id}...")
+                pdf_content = await self.download_pdf(arxiv_id)
+                
+                if pdf_content:
+                    # Save PDF temporarily for text extraction
+                    import tempfile
+                    import os
+                    
+                    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                        temp_file.write(pdf_content)
+                        temp_path = temp_file.name
+                    
+                    try:
+                        # Extract text from PDF
+                        from .pdf_processor import PDFProcessor
+                        pdf_processor = PDFProcessor()
+                        full_text = pdf_processor.extract_text(temp_path)
+                        
+                        if full_text:
+                            metadata['full_text'] = full_text
+                            logger.info(f"Successfully extracted {len(full_text)} characters of full text")
+                        else:
+                            logger.warning(f"Failed to extract text from PDF for {arxiv_id}")
+                    
+                    finally:
+                        # Clean up temporary file
+                        try:
+                            os.unlink(temp_path)
+                        except:
+                            pass
+                else:
+                    logger.warning(f"Failed to download PDF for {arxiv_id}")
+            
+            except Exception as e:
+                logger.error(f"Error extracting full text for {arxiv_id}: {e}")
+                # Continue with metadata only
         
         return Paper(**metadata)
