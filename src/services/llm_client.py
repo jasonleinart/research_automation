@@ -5,6 +5,7 @@ LLM client for insight extraction and embeddings using OpenAI API.
 import json
 import logging
 import numpy as np
+import os
 from typing import Dict, Any, Optional, List, Union
 import asyncio
 
@@ -150,10 +151,29 @@ Return only the JSON object:
         except Exception as e:
             logger.error(f"Structure validation failed: {e}")
             raise
+    
+    async def generate_response(self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini") -> str:
+        """Generate a simple chat response using OpenAI API."""
+        try:
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model=model,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.7
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            raise
 
 
 def get_llm_client(api_key: Optional[str] = None) -> OpenAILLMClient:
     """Get LLM client instance. Requires OpenAI API key."""
     if not api_key:
-        raise ValueError("OpenAI API key is required for LLM client")
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("OpenAI API key is required for LLM client")
     return OpenAILLMClient(api_key)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .arxiv_client import ArxivClient
 from .pdf_processor import PDFProcessor
+from .author_service import AuthorService
 from ..database.paper_repository import PaperRepository
 from ..models.paper import Paper
 
@@ -21,6 +22,7 @@ class PaperIngestionService:
         self.arxiv_client = ArxivClient()
         self.pdf_processor = PDFProcessor()
         self.paper_repo = PaperRepository()
+        self.author_service = AuthorService()
     
     async def ingest_from_arxiv_url(self, url: str) -> Optional[Paper]:
         """Ingest paper from ArXiv URL with full text extraction."""
@@ -51,8 +53,17 @@ class PaperIngestionService:
             else:
                 logger.warning(f"No full text extracted - only metadata available")
             
-            # Save to database
+            # Save paper to database
             saved_paper = await self.paper_repo.create(paper)
+            
+            # Handle authors if they exist
+            if hasattr(paper, '_temp_author_names') and paper._temp_author_names:
+                await self.author_service.assign_authors_to_paper(
+                    paper_id=saved_paper.id,
+                    author_names=paper._temp_author_names
+                )
+                logger.info(f"Assigned {len(paper._temp_author_names)} authors to paper")
+            
             logger.info(f"Successfully ingested paper: {saved_paper.title}")
             return saved_paper
             
@@ -91,8 +102,17 @@ class PaperIngestionService:
                     logger.warning(f"  - {similar.title}")
                 # For now, continue with ingestion, but flag this
             
-            # Save to database
+            # Save paper to database
             saved_paper = await self.paper_repo.create(paper)
+            
+            # Handle authors if they exist
+            if hasattr(paper, '_temp_author_names') and paper._temp_author_names:
+                await self.author_service.assign_authors_to_paper(
+                    paper_id=saved_paper.id,
+                    author_names=paper._temp_author_names
+                )
+                logger.info(f"Assigned {len(paper._temp_author_names)} authors to paper")
+            
             logger.info(f"Successfully ingested paper: {saved_paper.title}")
             return saved_paper
             
@@ -195,7 +215,7 @@ class PaperIngestionService:
         if not paper.abstract or len(paper.abstract.strip()) < 20:
             issues.append("Abstract is missing or too short")
         
-        if not paper.authors:
+        if not paper.author_names:
             issues.append("No authors specified")
         
         if paper.arxiv_id:

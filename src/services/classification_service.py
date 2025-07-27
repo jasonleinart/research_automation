@@ -21,8 +21,8 @@ class ClassificationService:
         self.classifier = PaperClassifier()
         self.paper_repo = PaperRepository()
         self.confidence_thresholds = {
-            'auto_approve': 0.8,
-            'manual_review': 0.5,
+            'auto_approve': 0.7,  # Lowered from 0.8 to account for full text analysis
+            'manual_review': 0.4,  # Lowered from 0.5
             'auto_reject': 0.2
         }
     
@@ -35,34 +35,39 @@ class ClassificationService:
                 logger.error(f"Paper not found: {paper_id}")
                 return None
             
-            # Skip if already classified with high confidence
-            if (paper.analysis_status == AnalysisStatus.COMPLETED and 
-                paper.analysis_confidence and paper.analysis_confidence > 0.8):
-                logger.info(f"Paper already classified with high confidence: {paper.title}")
-                return self._paper_to_classification_result(paper)
+            # Always reclassify to get the best possible confidence with full text analysis
+            # Skip the high confidence check to ensure we get the most accurate classification
             
             # Update status to in_progress
             await self.paper_repo.update_analysis_status(paper_id, AnalysisStatus.IN_PROGRESS)
             
-            # Perform classification
+            # Perform classification with full text analysis
             classification = self.classifier.classify_paper(paper)
             
-            # Update paper with classification results
-            paper.paper_type = classification['paper_type']
-            paper.evidence_strength = classification['evidence_strength']
-            paper.practical_applicability = classification['practical_applicability']
-            paper.analysis_confidence = classification['overall_confidence']
+            # Log classification details for debugging
+            if paper.full_text:
+                logger.info(f"Classifying paper with full text analysis: {paper.title}")
+                logger.info(f"Full text length: {len(paper.full_text)} characters")
+            else:
+                logger.warning(f"Classifying paper without full text: {paper.title}")
             
             # Determine final status based on confidence
             if classification['overall_confidence'] >= self.confidence_thresholds['auto_approve']:
-                paper.analysis_status = AnalysisStatus.COMPLETED
+                analysis_status = AnalysisStatus.COMPLETED
             elif classification['overall_confidence'] >= self.confidence_thresholds['manual_review']:
-                paper.analysis_status = AnalysisStatus.MANUAL_REVIEW
+                analysis_status = AnalysisStatus.MANUAL_REVIEW
             else:
-                paper.analysis_status = AnalysisStatus.FAILED
+                analysis_status = AnalysisStatus.FAILED
             
-            # Save updated paper
-            updated_paper = await self.paper_repo.update(paper)
+            # Save updated paper using the new classification update method
+            updated_paper = await self.paper_repo.update_classification(
+                paper.id,
+                classification['paper_type'],
+                classification['evidence_strength'],
+                classification['practical_applicability'],
+                analysis_status,
+                classification['overall_confidence']
+            )
             
             # Prepare result
             result = {

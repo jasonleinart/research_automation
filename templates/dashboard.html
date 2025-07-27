@@ -1,14 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard Overview - ArXiv Content Automation{% endblock %}
+{% block page_title %}Dashboard Overview{% endblock %}
+{% block page_subtitle %}Real-time insights into your research database{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Page Header -->
-    <div class="bg-white rounded-lg shadow-sm p-6">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard Overview</h1>
-        <p class="text-gray-600">Real-time insights into your research database</p>
-    </div>
 
     <!-- Statistics Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -67,6 +64,28 @@
                 </div>
             </div>
         </div>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 rounded-full bg-indigo-100 text-indigo-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Full Text Available</p>
+                    <p class="text-2xl font-semibold text-gray-900" id="full-text-ratio">-</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paper Type Distribution -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Paper Type Distribution</h3>
+        <div id="paper-type-distribution" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <p class="text-gray-500">Loading...</p>
+        </div>
     </div>
 
     <!-- Recent Content -->
@@ -101,6 +120,7 @@ async function loadDashboard() {
     try {
         const data = await fetchAPI('/dashboard/overview');
         displayStats(data.stats);
+        displayPaperTypeDistribution(data.stats.paper_type_counts);
         displayRecentPapers(data.stats.recent_papers);
         displayRecentInsights(data.stats.recent_insights);
     } catch (error) {
@@ -109,12 +129,48 @@ async function loadDashboard() {
     }
 }
 
+// Format paper type
+function formatPaperType(paperType) {
+    if (!paperType) return 'Unknown';
+    const typeMap = {
+        'empirical_study': 'Empirical Study',
+        'survey_review': 'Survey Review',
+        'conceptual_framework': 'Conceptual Framework',
+        'position_paper': 'Position Paper',
+        'benchmark_comparison': 'Benchmark Comparison',
+        'case_study': 'Case Study',
+        'tutorial': 'Tutorial',
+        'methodology': 'Methodology',
+        'theoretical': 'Theoretical',
+        'experimental': 'Experimental'
+    };
+    return typeMap[paperType] || paperType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
 // Display statistics cards
 function displayStats(stats) {
     document.getElementById('total-papers').textContent = formatNumber(stats.total_papers);
     document.getElementById('total-insights').textContent = formatNumber(stats.total_insights);
     document.getElementById('total-tags').textContent = formatNumber(stats.total_tags);
     document.getElementById('completed-analyses').textContent = formatNumber(stats.completed_analyses);
+    document.getElementById('full-text-ratio').textContent = `${(stats.full_text_ratio * 100).toFixed(0)}%`;
+}
+
+// Display paper type distribution
+function displayPaperTypeDistribution(paperTypeCounts) {
+    const container = document.getElementById('paper-type-distribution');
+    
+    if (!paperTypeCounts || Object.keys(paperTypeCounts).length === 0) {
+        container.innerHTML = '<p class="text-gray-500 col-span-full">No paper types available</p>';
+        return;
+    }
+
+    container.innerHTML = Object.entries(paperTypeCounts).map(([type, count]) => `
+        <div class="bg-gray-50 rounded-lg p-4 text-center">
+            <div class="text-2xl font-bold text-gray-900">${count}</div>
+            <div class="text-sm text-gray-600">${formatPaperType(type)}</div>
+        </div>
+    `).join('');
 }
 
 // Display recent papers
@@ -127,8 +183,13 @@ function displayRecentPapers(papers) {
 
     container.innerHTML = papers.map(paper => `
         <div class="border-l-4 border-blue-500 pl-4 py-2 mb-3">
-            <h4 class="font-medium text-gray-900 truncate">${paper.title}</h4>
-            <p class="text-xs text-gray-500">${formatDate(paper.publication_date)}</p>
+            <div class="min-w-0 flex-1">
+                <h4 class="font-medium text-gray-900 truncate block">${paper.title}</h4>
+                <div class="flex items-center gap-2 text-xs text-gray-500">
+                    <span>${formatDate(paper.publication_date)}</span>
+                    ${paper.paper_type ? `<span>• ${formatPaperType(paper.paper_type)}</span>` : ''}
+                </div>
+            </div>
         </div>
     `).join('');
 }
@@ -143,9 +204,11 @@ function displayRecentInsights(insights) {
 
     container.innerHTML = insights.map(insight => `
         <div class="border-l-4 border-green-500 pl-4 py-2 mb-3">
-            <h4 class="font-medium text-gray-900 truncate">${insight.title}</h4>
-            <p class="text-sm text-gray-600">${insight.insight_type}</p>
-            <p class="text-xs text-gray-500">${formatDate(insight.created_at)}</p>
+            <div class="min-w-0">
+                <h4 class="font-medium text-gray-900 truncate block">${insight.title}</h4>
+                <p class="text-sm text-gray-600">${insight.insight_type}</p>
+                <p class="text-xs text-gray-500">${formatDate(insight.created_at)}</p>
+            </div>
         </div>
     `).join('');
 }

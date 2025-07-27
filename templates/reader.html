@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+
+{% block title %}Reader - Research Dashboard{% endblock %}
+
+{% block page_title %}Reader{% endblock %}
+{% block page_subtitle %}Read papers and chat with AI{% endblock %}
+
+{% block content %}
+<div class="flex flex-col bg-gray-50" style="height: calc(100vh - 140px);">
+    <!-- Header with Paper Selector and Controls -->
+    <div class="bg-white border-b border-gray-200 p-4">
+        <div class="flex items-center justify-between">
+            <!-- Paper Selector -->
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-gray-700">Paper:</label>
+                    <select id="paperSelector" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm min-w-80">
+                        {% if papers %}
+                            {% for paper in papers %}
+                                <option value="{{ paper.id }}" {% if selected_paper and selected_paper.id == paper.id %}selected{% endif %}>
+                                    {{ paper.title[:60] }}{% if paper.title|length > 60 %}...{% endif %}
+                                </option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="">No papers available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                <!-- Status Indicator -->
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-500">Status:</span>
+                    <span id="readingStatus" class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">Reading</span>
+                </div>
+            </div>
+            
+                               <!-- Controls -->
+                   <div class="flex items-center space-x-2">
+
+                       <button id="chatToggle" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors text-sm">
+                           ◄ Chat
+                       </button>
+                       <button id="fullScreenToggle" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors text-sm">
+                           Full Screen
+                       </button>
+                   </div>
+        </div>
+    </div>
+    
+    <!-- Main Content Area -->
+    <div class="flex flex-1 overflow-hidden">
+        <!-- PDF Viewer -->
+        <div id="pdfContainer" class="bg-white m-4 rounded-lg shadow-sm" style="min-height: 600px; width: 60%;">
+            {% if selected_paper %}
+                <iframe 
+                    id="pdfIframe"
+                    src="/api/papers/{{ selected_paper.id }}/pdf" 
+                    class="w-full h-full border-0 rounded-lg">
+                </iframe>
+            {% else %}
+                <div class="flex items-center justify-center h-full text-gray-500">
+                    <div class="text-center">
+                        <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <h3 class="text-lg font-medium mb-2">No Paper Selected</h3>
+                        <p class="text-sm">Select a paper from the dropdown above to start reading</p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- Chat Interface -->
+        <div id="chatContainer" class="bg-white m-4 rounded-lg shadow-sm flex flex-col" style="width: 40%;">
+            <!-- Chat Header -->
+            <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-t-lg">
+                <h3 class="text-lg font-semibold mb-1">Chat with AI</h3>
+                <p class="text-sm opacity-90">
+                    {% if selected_paper %}
+                        {{ selected_paper.title[:30] }}{% if selected_paper.title|length > 30 %}...{% endif %}
+                    {% else %}
+                        Select a paper to start chatting
+                    {% endif %}
+                </p>
+            </div>
+            
+            <!-- Chat Messages -->
+            <div id="chatMessages" class="flex-1 p-4 overflow-y-auto bg-gray-50">
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/>
+                        <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/>
+                    </svg>
+                    <h4 class="font-medium mb-1">Start a conversation</h4>
+                    <p class="text-sm">Ask questions about the paper or request notes</p>
+                </div>
+            </div>
+            
+            <!-- Chat Input -->
+            <div class="p-4 border-t border-gray-200">
+                <div class="flex space-x-2">
+                    <input 
+                        type="text" 
+                        id="chatInput" 
+                        placeholder="Ask about the paper..." 
+                        class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        disabled="{% if not selected_paper %}disabled{% endif %}">
+                    <button 
+                        id="sendButton" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                        disabled="{% if not selected_paper %}disabled{% endif %}">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+           let currentPaperId = '{% if selected_paper %}{{ selected_paper.id }}{% endif %}';
+       let chatVisible = true;
+       let chatHistory = [];
+
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        setupEventListeners();
+        updateUI();
+    });
+
+    function setupEventListeners() {
+        // Paper selector
+        document.getElementById('paperSelector').addEventListener('change', function() {
+            const paperId = this.value;
+            if (paperId && paperId !== currentPaperId) {
+                loadPaper(paperId);
+            }
+        });
+
+        // Chat toggle
+        document.getElementById('chatToggle').addEventListener('click', function() {
+            toggleChat();
+        });
+
+        // Full screen toggle
+        document.getElementById('fullScreenToggle').addEventListener('click', function() {
+            toggleFullScreen();
+        });
+
+        // Chat input
+        document.getElementById('chatInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+                       document.getElementById('sendButton').addEventListener('click', sendMessage);
+               
+
+    }
+
+    function loadPaper(paperId) {
+        currentPaperId = paperId;
+        
+        // Update URL without page reload
+        const url = new URL(window.location);
+        url.searchParams.set('paper_id', paperId);
+        window.history.pushState({}, '', url);
+        
+        // Update PDF iframe
+        const iframe = document.querySelector('#pdfIframe');
+        if (iframe) {
+            iframe.src = `/api/papers/${paperId}/pdf`;
+        }
+        
+        // Clear chat history for new paper
+        chatHistory = [];
+        renderChatMessages();
+        
+        // Update chat header
+        const chatHeader = document.querySelector('#chatContainer p');
+        const selectedOption = document.querySelector(`#paperSelector option[value="${paperId}"]`);
+        if (chatHeader && selectedOption) {
+            chatHeader.textContent = selectedOption.textContent;
+        }
+        
+        // Enable chat input
+        document.getElementById('chatInput').disabled = false;
+        document.getElementById('sendButton').disabled = false;
+        
+        updateUI();
+    }
+
+    function toggleChat() {
+        const chatContainer = document.getElementById('chatContainer');
+        const pdfContainer = document.getElementById('pdfContainer');
+        const toggleButton = document.getElementById('chatToggle');
+        
+        chatVisible = !chatVisible;
+        
+        if (chatVisible) {
+            chatContainer.style.display = 'flex';
+            pdfContainer.style.width = '60%';
+            toggleButton.textContent = '◄ Chat';
+        } else {
+            chatContainer.style.display = 'none';
+            pdfContainer.style.width = '100%';
+            toggleButton.textContent = '► Chat';
+        }
+    }
+
+    function toggleFullScreen() {
+        const pdfContainer = document.getElementById('pdfContainer');
+        const iframe = pdfContainer.querySelector('iframe');
+        
+        if (iframe.requestFullscreen) {
+            iframe.requestFullscreen();
+        } else if (iframe.webkitRequestFullscreen) {
+            iframe.webkitRequestFullscreen();
+        } else if (iframe.msRequestFullscreen) {
+            iframe.msRequestFullscreen();
+        }
+    }
+
+           async function sendMessage() {
+           const input = document.getElementById('chatInput');
+           const message = input.value.trim();
+           
+           if (!message) return;
+           
+
+           
+           // Add user message to chat
+           addMessageToChat('user', message);
+           input.value = '';
+           
+           // Show typing indicator
+           addTypingIndicator();
+           
+           try {
+               // Prepare request body
+               const requestBody = {
+                   message: message,
+                   conversation_type: 'general',
+                   paper_id: currentPaperId  // Always send paper_id so AI knows which paper you're viewing
+               };
+               
+               // Send message to chat API
+               const response = await fetch('/api/chat/message', {
+                   method: 'POST',
+                   headers: {
+                       'Content-Type': 'application/json',
+                   },
+                   body: JSON.stringify(requestBody)
+               });
+               
+               if (response.ok) {
+                   const data = await response.json();
+                   removeTypingIndicator();
+                   addMessageToChat('assistant', data.response);
+               } else {
+                   throw new Error('Failed to send message');
+               }
+           } catch (error) {
+               console.error('Error sending message:', error);
+               removeTypingIndicator();
+               addMessageToChat('assistant', 'Sorry, I encountered an error. Please try again.');
+           }
+       }
+
+    function addMessageToChat(role, content) {
+        chatHistory.push({ role, content, timestamp: new Date() });
+        renderChatMessages();
+    }
+
+    function addTypingIndicator() {
+        const messagesContainer = document.getElementById('chatMessages');
+        const typingDiv = document.createElement('div');
+        typingDiv.id = 'typingIndicator';
+        typingDiv.className = 'flex items-center space-x-2 p-3 bg-white rounded-lg shadow-sm mb-3';
+        typingDiv.innerHTML = `
+            <div class="flex space-x-1">
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+            </div>
+            <span class="text-sm text-gray-500">AI is thinking...</span>
+        `;
+        messagesContainer.appendChild(typingDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+            typingIndicator.remove();
+        }
+    }
+
+    // Enhanced markdown parser for better formatting
+    function parseMarkdown(text) {
+        if (!text) return '';
+        
+        return text
+        
+            // Headers: ### text -> <h3>text</h3>
+            .replace(/^###\s*(.*)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2 text-gray-800">$1</h3>')
+            .replace(/^##\s*(.*)$/gm, '<h2 class="text-xl font-bold mt-6 mb-3 text-gray-900">$1</h2>')
+            .replace(/^#\s*(.*)$/gm, '<h1 class="text-2xl font-bold mt-8 mb-4 text-gray-900">$1</h1>')
+            // Bold text: **text** -> <strong>text</strong>
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            // Bullet points: • item -> <li>item</li>
+            .replace(/^•\s*(.*)$/gm, '<li>$1</li>')
+            // Dash bullet points: - item -> <li>item</li>
+            .replace(/^-\s*(.*)$/gm, '<li>$1</li>')
+            // Numbered lists: 1. item -> <li>item</li>
+            .replace(/^\d+\.\s*(.*)$/gm, '<li>$1</li>')
+            // Convert consecutive <li> items to proper lists
+            .replace(/(<li>.*<\/li>)/gs, function(match) {
+                return '<ul class="list-disc list-inside space-y-1 my-2">' + match + '</ul>';
+            })
+            // Handle double line breaks for paragraphs
+            .replace(/\n\n+/g, '</p><p>')
+            // Handle single line breaks within paragraphs
+            .replace(/\n/g, '<br>')
+            // Wrap in <p> tags if not already wrapped
+            .replace(/^(.+)$/s, '<p>$1</p>')
+            // Clean up empty paragraphs and excessive spacing
+            .replace(/<p><\/p>/g, '')
+            .replace(/<br><br>/g, '<br>')
+            // Clean up excessive <br> tags
+            .replace(/(<br>){3,}/g, '<br><br>')
+            // Clean up spacing around headers (remove paragraph tags around headers)
+            .replace(/<p>\s*<h[1-3][^>]*>/g, '<h$1')
+            .replace(/<\/h[1-3]>\s*<\/p>/g, '</h$1>');
+    }
+
+    function renderChatMessages() {
+        const container = document.getElementById('chatMessages');
+        
+        if (chatHistory.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/>
+                        <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/>
+                    </svg>
+                    <h4 class="font-medium mb-1">Start a conversation</h4>
+                    <p class="text-sm">Ask questions about the paper or request notes</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = chatHistory.map(msg => `
+            <div class="mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}">
+                <div class="inline-block max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                    msg.role === 'user' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white text-gray-800 shadow-sm'
+                }">
+                    <div class="text-sm ${msg.role === 'assistant' ? 'prose prose-sm max-w-none' : ''}">
+                        ${msg.role === 'assistant' ? parseMarkdown(msg.content) : msg.content}
+                    </div>
+                    <style>
+                        .prose p { margin: 0.5rem 0; }
+                        .prose ul { margin: 0.5rem 0; }
+                        .prose li { margin: 0.25rem 0; }
+                        .prose strong { font-weight: 600; }
+                    </style>
+                    <p class="text-xs opacity-70 mt-1">${msg.timestamp.toLocaleTimeString()}</p>
+                </div>
+            </div>
+        `).join('');
+        
+        container.scrollTop = container.scrollHeight;
+    }
+
+           function updateUI() {
+           const hasPaper = !!currentPaperId;
+           
+           // Always enable chat - no paper required for general conversation
+           document.getElementById('chatInput').disabled = false;
+           document.getElementById('sendButton').disabled = false;
+           
+           if (!hasPaper) {
+               document.getElementById('readingStatus').textContent = 'No Paper';
+               document.getElementById('readingStatus').className = 'px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full';
+           } else {
+               document.getElementById('readingStatus').textContent = 'Reading';
+               document.getElementById('readingStatus').className = 'px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full';
+           }
+       }
+
+
+</script>
+{% endblock %} 

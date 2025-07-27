@@ -117,30 +117,22 @@ async def get_tag(tag_id: UUID):
         for paper_tag in paper_tags:
             paper = await paper_repo.get_by_id(paper_tag.paper_id)
             if paper:
-                # Handle authors properly
+                # Get authors from the new relational system
                 authors = []
-                if paper.authors:
-                    for author in paper.authors:
-                        author_name = str(author)
-                        if "Author(name=" in author_name:
-                            if "name='" in author_name:
-                                parts = author_name.split("name='")
-                                if len(parts) > 1:
-                                    name_part = parts[1]
-                                    if "'" in name_part:
-                                        author_name = name_part.split("'")[0]
-                                    else:
-                                        author_name = "Unknown Author"
-                                else:
-                                    author_name = "Unknown Author"
-                            else:
-                                author_name = "Unknown Author"
-                        elif hasattr(author, 'name'):
-                            author_name = author.name
-                        elif isinstance(author, dict):
-                            author_name = author.get('name', 'Unknown')
-                        
+                if hasattr(paper, '_author_names') and paper._author_names:
+                    for author_name in paper._author_names:
                         authors.append({'name': author_name})
+                else:
+                    # Fallback: try to get authors from the repository
+                    try:
+                        from src.database.author_repository import AuthorRepository
+                        author_repo = AuthorRepository()
+                        paper_authors = await author_repo.get_paper_authors(paper.id)
+                        for author in paper_authors:
+                            authors.append({'name': author.name})
+                    except Exception as e:
+                        # If we can't get authors, just continue
+                        pass
                 
                 paper_dict = {
                     'id': paper.id,

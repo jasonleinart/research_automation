@@ -179,7 +179,7 @@ class PaperIngestionCLI:
         """Display paper information in a formatted way."""
         console.print(f"\n[bold cyan]Title:[/bold cyan] {paper.title}")
         
-        if paper.authors:
+        if paper.author_names:
             authors_str = ", ".join(paper.author_names)
             console.print(f"[bold green]Authors:[/bold green] {authors_str}")
         

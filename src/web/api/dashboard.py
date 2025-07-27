@@ -50,48 +50,31 @@ async def get_dashboard_overview():
             }
             top_tags_schemas.append(TagSchema.model_validate(tag_dict))
 
-        # Get recent papers
+        # Get recent papers with authors
         recent_papers = await paper_repo.get_recent_papers(limit=5)
+        # Load authors for these papers
+        paper_ids = [paper.id for paper in recent_papers]
+        recent_papers_with_authors = await paper_repo.get_papers_with_authors(paper_ids)
+        
         recent_papers_schemas = []
-        for paper in recent_papers:
-            # Handle authors properly
+        for paper in recent_papers_with_authors:
+            # Get authors from the new relational system
             authors = []
-            if paper.authors:
-                for author in paper.authors:
-                    # Simple approach: just use the string representation
-                    author_name = str(author)
-                    # Clean up common patterns
-                    if "Author(name=" in author_name:
-                        # Try to extract just the name part
-                        if "name='" in author_name:
-                            parts = author_name.split("name='")
-                            if len(parts) > 1:
-                                name_part = parts[1]
-                                if "'" in name_part:
-                                    author_name = name_part.split("'")[0]
-                                else:
-                                    author_name = "Unknown Author"
-                            else:
-                                author_name = "Unknown Author"
-                        else:
-                            author_name = "Unknown Author"
-                    elif hasattr(author, 'name'):
-                        author_name = author.name
-                    elif isinstance(author, dict):
-                        author_name = author.get('name', 'Unknown')
-                    
+            if hasattr(paper, '_author_names') and paper._author_names:
+                for author_name in paper._author_names:
                     authors.append({'name': author_name})
             
             paper_dict = {
                 'id': paper.id,
-                'arxiv_id': paper.arxiv_id,
+                'arxiv_id': paper.arxiv_id or '',  # Handle None arxiv_id
                 'title': paper.title,
-                'abstract': paper.abstract,
+                'abstract': paper.abstract or '',  # Handle None abstract
                 'authors': authors,
                 'publication_date': paper.publication_date,
-                'categories': paper.categories,
-                'paper_type': paper.paper_type,
+                'categories': paper.categories or [],  # Handle None categories
+                'paper_type': paper.paper_type or 'empirical_study',  # Default paper type
                 'analysis_status': paper.analysis_status,
+                'has_full_text': bool(paper.full_text),  # Check if full text exists
                 'created_at': paper.created_at,
                 'updated_at': paper.updated_at
             }
@@ -127,6 +110,14 @@ async def get_dashboard_overview():
         # Get insights by type for chart
         insights_by_type = await insight_repo.get_insights_by_type()
 
+        # Get paper type distribution
+        paper_type_counts = await paper_repo.get_paper_type_counts()
+
+        # Calculate full text ratio for all papers
+        all_papers = await paper_repo.list_all()
+        papers_with_full_text = len([p for p in all_papers if p.full_text])
+        full_text_ratio = papers_with_full_text / len(all_papers) if all_papers else 0.0
+
         stats = DashboardStats(
             total_papers=papers_count,
             total_insights=insights_count,
@@ -134,8 +125,10 @@ async def get_dashboard_overview():
             completed_analyses=completed_analyses,
             manual_review_analyses=manual_review_analyses,
             failed_analyses=failed_analyses,
+            full_text_ratio=full_text_ratio,
             analysis_status_counts=analysis_status_counts,
             insights_by_type=insights_by_type,
+            paper_type_counts=paper_type_counts,
             top_tags=top_tags_schemas,
             recent_papers=recent_papers_schemas,
             recent_insights=recent_insights_schemas

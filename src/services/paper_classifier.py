@@ -284,10 +284,40 @@ class PaperClassifier:
             categories_text = " ".join(paper.categories)
             text_parts.append(categories_text)
         
-        # Full text (if available, but limit to avoid overwhelming)
+        # Full text analysis (enhanced)
         if paper.full_text:
-            # Use first 5000 characters of full text
-            text_parts.append(paper.full_text[:5000])
+            full_text = paper.full_text.lower()
+            
+            # Use more comprehensive full text analysis
+            # Include introduction, conclusion, and key sections
+            sections_to_analyze = []
+            
+            # Introduction section (first 20% of text)
+            intro_length = int(len(full_text) * 0.2)
+            sections_to_analyze.append(full_text[:intro_length])
+            
+            # Conclusion section (last 15% of text)
+            conclusion_length = int(len(full_text) * 0.15)
+            sections_to_analyze.append(full_text[-conclusion_length:])
+            
+            # Middle sections (sample from 30-70% of text)
+            middle_start = int(len(full_text) * 0.3)
+            middle_end = int(len(full_text) * 0.7)
+            middle_sample = full_text[middle_start:middle_end]
+            
+            # Sample from middle (every 10th character to get representative sample)
+            middle_sample = middle_sample[::10]
+            sections_to_analyze.append(middle_sample)
+            
+            # Add all sections to text parts
+            for section in sections_to_analyze:
+                text_parts.append(section)
+        else:
+            # If no full text, use more weight for title and abstract
+            if paper.title:
+                text_parts.extend([paper.title] * 2)  # Additional weight
+            if paper.abstract:
+                text_parts.extend([paper.abstract] * 1.5)  # Additional weight
         
         return " ".join(text_parts).lower()
     
@@ -298,34 +328,55 @@ class PaperClassifier:
         for paper_type, rules in self.classification_rules['paper_types'].items():
             score = 0.0
             matches = 0
+            detailed_matches = {
+                'title_patterns': 0,
+                'abstract_patterns': 0,
+                'content_indicators': 0
+            }
             
             # Check title patterns
             for pattern in rules['title_patterns']:
                 if re.search(pattern, text, re.IGNORECASE):
-                    score += 2.0  # Title patterns get higher weight
+                    score += 3.0  # Increased weight for title patterns
                     matches += 1
+                    detailed_matches['title_patterns'] += 1
             
             # Check abstract patterns
             for pattern in rules['abstract_patterns']:
                 if re.search(pattern, text, re.IGNORECASE):
-                    score += 1.5  # Abstract patterns get medium weight
+                    score += 2.0  # Increased weight for abstract patterns
                     matches += 1
+                    detailed_matches['abstract_patterns'] += 1
             
-            # Check content indicators
+            # Check content indicators (enhanced for full text)
             for indicator in rules['content_indicators']:
                 count = len(re.findall(r'\b' + re.escape(indicator) + r'\b', text, re.IGNORECASE))
-                score += count * 0.5  # Content indicators get lower weight
+                # Higher weight for content indicators when full text is available
+                indicator_weight = 1.0 if len(text) > 10000 else 0.5  # Full text gets higher weight
+                score += count * indicator_weight
                 if count > 0:
                     matches += 1
+                    detailed_matches['content_indicators'] += count
+            
+            # Bonus for having multiple types of matches
+            if detailed_matches['title_patterns'] > 0 and detailed_matches['abstract_patterns'] > 0:
+                score += 1.0  # Bonus for title + abstract match
+            if detailed_matches['content_indicators'] > 5:
+                score += 1.0  # Bonus for high content indicator frequency
             
             # Normalize score by number of rules
             total_rules = len(rules['title_patterns']) + len(rules['abstract_patterns']) + len(rules['content_indicators'])
             normalized_score = score / total_rules if total_rules > 0 else 0
             
+            # Adjust confidence based on text length (full text analysis gets higher confidence)
+            text_length_factor = min(len(text) / 5000, 1.5)  # Cap at 1.5x for very long texts
+            adjusted_confidence = min(normalized_score * text_length_factor, 1.0)
+            
             type_scores[paper_type] = {
                 'score': normalized_score,
                 'matches': matches,
-                'confidence': min(normalized_score, 1.0)
+                'confidence': adjusted_confidence,
+                'detailed_matches': detailed_matches
             }
         
         # Find best match
@@ -418,3 +469,79 @@ class PaperClassifier:
             explanation += "Low confidence classification - may need manual review."
         
         return explanation
+
+    def get_detailed_classification_analysis(self, paper: Paper) -> Dict[str, Any]:
+        """Get detailed classification analysis for debugging and understanding."""
+        text = self._prepare_text_for_analysis(paper)
+        type_scores = {}
+        
+        for paper_type, rules in self.classification_rules['paper_types'].items():
+            score = 0.0
+            matches = 0
+            detailed_matches = {
+                'title_patterns': [],
+                'abstract_patterns': [],
+                'content_indicators': {}
+            }
+            
+            # Check title patterns
+            for pattern in rules['title_patterns']:
+                if re.search(pattern, text, re.IGNORECASE):
+                    score += 3.0
+                    matches += 1
+                    detailed_matches['title_patterns'].append(pattern)
+            
+            # Check abstract patterns
+            for pattern in rules['abstract_patterns']:
+                if re.search(pattern, text, re.IGNORECASE):
+                    score += 2.0
+                    matches += 1
+                    detailed_matches['abstract_patterns'].append(pattern)
+            
+            # Check content indicators
+            for indicator in rules['content_indicators']:
+                count = len(re.findall(r'\b' + re.escape(indicator) + r'\b', text, re.IGNORECASE))
+                indicator_weight = 1.0 if len(text) > 10000 else 0.5
+                score += count * indicator_weight
+                if count > 0:
+                    matches += 1
+                    detailed_matches['content_indicators'][indicator] = count
+            
+            # Bonus calculations
+            bonuses = []
+            if detailed_matches['title_patterns'] and detailed_matches['abstract_patterns']:
+                score += 1.0
+                bonuses.append("Title + Abstract match")
+            if sum(detailed_matches['content_indicators'].values()) > 5:
+                score += 1.0
+                bonuses.append("High content indicator frequency")
+            
+            # Normalize score
+            total_rules = len(rules['title_patterns']) + len(rules['abstract_patterns']) + len(rules['content_indicators'])
+            normalized_score = score / total_rules if total_rules > 0 else 0
+            
+            # Adjust confidence
+            text_length_factor = min(len(text) / 5000, 1.5)
+            adjusted_confidence = min(normalized_score * text_length_factor, 1.0)
+            
+            type_scores[paper_type] = {
+                'score': normalized_score,
+                'confidence': adjusted_confidence,
+                'matches': matches,
+                'detailed_matches': detailed_matches,
+                'bonuses': bonuses,
+                'text_length': len(text),
+                'text_length_factor': text_length_factor
+            }
+        
+        # Sort by confidence
+        sorted_scores = sorted(type_scores.items(), key=lambda x: x[1]['confidence'], reverse=True)
+        
+        return {
+            'paper_title': paper.title,
+            'has_full_text': bool(paper.full_text),
+            'text_length': len(text),
+            'classification_scores': dict(sorted_scores),
+            'recommended_type': sorted_scores[0][0] if sorted_scores else None,
+            'recommended_confidence': sorted_scores[0][1]['confidence'] if sorted_scores else 0.0
+        }

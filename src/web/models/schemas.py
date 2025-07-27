@@ -24,14 +24,15 @@ class AuthorSchema(BaseModel):
 class PaperSchema(BaseModel):
     """Paper information."""
     id: UUID
-    arxiv_id: str
+    arxiv_id: Optional[str] = None
     title: str
-    abstract: str
-    authors: List[AuthorSchema]
-    publication_date: Optional[datetime]
-    categories: List[str]
-    paper_type: PaperType
+    abstract: Optional[str] = None
+    authors: List[AuthorSchema] = []
+    publication_date: Optional[datetime] = None
+    categories: List[str] = []
+    paper_type: Optional[PaperType] = None
     analysis_status: AnalysisStatus
+    has_full_text: bool = False  # Whether full text PDF exists in database
     created_at: datetime
     updated_at: datetime
 
@@ -70,8 +71,10 @@ class DashboardStats(BaseModel):
     completed_analyses: int
     manual_review_analyses: int
     failed_analyses: int
+    full_text_ratio: float = 0.0  # Ratio of papers with full text vs total papers
     analysis_status_counts: Dict[str, int] = Field(default_factory=dict)
     insights_by_type: Dict[str, int] = Field(default_factory=dict)
+    paper_type_counts: Dict[str, int] = Field(default_factory=dict)  # Count of papers by type
     top_tags: List[TagSchema]
     recent_papers: List[PaperSchema]
     recent_insights: List[InsightSchema]

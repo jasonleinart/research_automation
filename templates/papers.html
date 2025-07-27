@@ -1,15 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Papers - ArXiv Content Automation{% endblock %}
+{% block page_title %}Research Papers{% endblock %}
+{% block page_subtitle %}Browse and search through your research database{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Page Header -->
-    <div class="bg-white rounded-lg shadow-sm p-6">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Research Papers</h1>
-        <p class="text-gray-600">Browse and search through your research database</p>
-    </div>
-
     <!-- Search and Filters -->
     <div class="bg-white rounded-lg shadow-sm p-6">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -32,9 +28,16 @@
                 <label for="type-filter" class="block text-sm font-medium text-gray-700 mb-1">Type</label>
                 <select id="type-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">All Types</option>
-                    <option value="research">Research</option>
-                    <option value="review">Review</option>
-                    <option value="survey">Survey</option>
+                    <option value="empirical_study">Empirical Study</option>
+                    <option value="survey_review">Survey Review</option>
+                    <option value="conceptual_framework">Conceptual Framework</option>
+                    <option value="position_paper">Position Paper</option>
+                    <option value="benchmark_comparison">Benchmark Comparison</option>
+                    <option value="case_study">Case Study</option>
+                    <option value="tutorial">Tutorial</option>
+                    <option value="methodology">Methodology</option>
+                    <option value="theoretical">Theoretical</option>
+                    <option value="experimental">Experimental</option>
                 </select>
             </div>
         </div>
@@ -92,17 +95,21 @@ async function loadPapers(page = 1) {
         const params = new URLSearchParams({
             page: page,
             per_page: 10,
-            ...currentFilters
+            search: currentFilters.search,
+            status: currentFilters.status,
+            type: currentFilters.type
         });
+
+        const response = await fetch(`/api/papers/?${params}`);
+        const data = await response.json();
         
-        const data = await fetchAPI(`/papers/?${params}`);
         displayPapers(data.papers);
         updatePagination(data.total, data.page, data.per_page);
         updateCounts(data.total);
+        
     } catch (error) {
-        console.error('Failed to load papers:', error);
-        document.getElementById('papers-list').innerHTML = 
-            '<div class="p-6 text-center text-red-600">Failed to load papers</div>';
+        console.error('Error loading papers:', error);
+        document.getElementById('papers-list').innerHTML = '<div class="p-6 text-center text-red-500">Error loading papers</div>';
     }
 }
 
@@ -115,39 +122,116 @@ function displayPapers(papers) {
         return;
     }
 
-    container.innerHTML = papers.map(paper => `
-        <div class="p-6 hover:bg-gray-50 transition-colors">
-            <div class="flex justify-between items-start">
-                <div class="flex-1">
-                    <h4 class="text-lg font-semibold text-gray-900 mb-2">
-                        <a href="#" class="hover:text-blue-600" onclick="showPaperDetails('${paper.id}')">
-                            ${paper.title}
-                        </a>
-                    </h4>
-                    <p class="text-sm text-gray-600 mb-2">${paper.authors.join(', ')}</p>
-                    <p class="text-sm text-gray-500 mb-3">${paper.abstract.substring(0, 200)}${paper.abstract.length > 200 ? '...' : ''}</p>
-                    
-                    <div class="flex flex-wrap gap-2 mb-3">
-                        ${paper.categories.map(cat => 
-                            `<span class="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">${cat}</span>`
-                        ).join('')}
+    container.innerHTML = papers.map(paper => {
+        const statusColor = getStatusColor(paper.analysis_status);
+        const typeColor = getTypeColor(paper.paper_type);
+        
+        return `
+            <div class="p-6 hover:bg-gray-50 transition-colors">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex-1">
+                        <h3 class="text-xl font-semibold text-gray-900 mb-2">
+                            <a href="/papers/${paper.id}" class="hover:text-blue-600 transition-colors">
+                                ${paper.title}
+                            </a>
+                        </h3>
+                        
+                        <div class="flex items-center gap-3 mb-3">
+                            ${paper.paper_type ? 
+                                `<span class="px-2 py-1 text-xs font-medium rounded-full ${typeColor}">
+                                    ${formatPaperType(paper.paper_type)}
+                                </span>` : ''
+                            }
+                            ${paper.analysis_status ? 
+                                `<span class="px-2 py-1 text-xs font-medium rounded-full ${statusColor}">
+                                    ${paper.analysis_status.replace(/_/g, ' ').toUpperCase()}
+                                </span>` : ''
+                            }
+                            ${paper.confidence ? 
+                                `<span class="text-sm text-gray-600">Confidence: ${(paper.confidence * 100).toFixed(0)}%</span>` : ''
+                            }
+                        </div>
+                        
+                        ${paper.abstract ? 
+                            `<p class="text-gray-700 mb-4 line-clamp-3">${paper.abstract}</p>` : ''
+                        }
+                        
+                        <div class="flex items-center text-sm text-gray-600 space-x-4">
+                            ${paper.author_names && paper.author_names.length > 0 ? 
+                                `<div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                    </svg>
+                                    <span>${paper.author_names.join(', ')}</span>
+                                </div>` : ''
+                            }
+                            ${paper.publication_date ? 
+                                `<div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <span>${formatDate(paper.publication_date)}</span>
+                                </div>` : ''
+                            }
+                            ${paper.arxiv_id ? 
+                                `<div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
+                                    <a href="https://arxiv.org/abs/${paper.arxiv_id}" target="_blank" class="text-blue-600 hover:underline">
+                                        ${paper.arxiv_id}
+                                    </a>
+                                </div>` : ''
+                            }
+                            ${paper.full_text ? 
+                                `<div class="flex items-center text-green-600">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    <span class="text-xs">Full Text Available</span>
+                                </div>` : ''
+                            }
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="flex items-center space-x-2 mt-4">
+                            ${paper.full_text || paper.pdf_content ? 
+                                `<a href="/reader?paper_id=${paper.id}" class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                                    </svg>
+                                    Read PDF
+                                </a>` : ''
+                            }
+                            <a href="/papers/${paper.id}" class="inline-flex items-center px-3 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 transition-colors">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                                View Details
+                            </a>
+                        </div>
                     </div>
                     
-                    <div class="flex items-center space-x-4 text-sm text-gray-500">
-                        <span>📅 ${formatDate(paper.publication_date)}</span>
-                        <span>📊 ${paper.insights_count || 0} insights</span>
-                        <span>🏷️ ${paper.tags_count || 0} tags</span>
+                    <div class="ml-6 flex flex-col items-end text-sm text-gray-500">
+                        <span>${formatDate(paper.created_at)}</span>
+                        <div class="mt-1 space-y-1">
+                            ${paper.insight_count ? 
+                                `<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                                    ${paper.insight_count} insight${paper.insight_count !== 1 ? 's' : ''}
+                                </span>` : ''
+                            }
+                            ${paper.tags_count ? 
+                                `<span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                                    ${paper.tags_count} tag${paper.tags_count !== 1 ? 's' : ''}
+                                </span>` : ''
+                            }
+                        </div>
                     </div>
-                </div>
-                
-                <div class="ml-4">
-                    <span class="px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(paper.analysis_status)}">
-                        ${paper.analysis_status}
-                    </span>
                 </div>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Get status color
@@ -159,6 +243,29 @@ function getStatusColor(status) {
         case 'pending': return 'bg-gray-100 text-gray-800';
         default: return 'bg-gray-100 text-gray-800';
     }
+}
+
+// Get type color
+function getTypeColor(type) {
+    switch (type) {
+        case 'empirical_study': return 'bg-blue-100 text-blue-800';
+        case 'survey_review': return 'bg-purple-100 text-purple-800';
+        case 'conceptual_framework': return 'bg-indigo-100 text-indigo-800';
+        case 'position_paper': return 'bg-orange-100 text-orange-800';
+        case 'benchmark_comparison': return 'bg-teal-100 text-teal-800';
+        case 'case_study': return 'bg-pink-100 text-pink-800';
+        case 'tutorial': return 'bg-green-100 text-green-800';
+        case 'methodology': return 'bg-yellow-100 text-yellow-800';
+        case 'theoretical': return 'bg-gray-100 text-gray-800';
+        case 'experimental': return 'bg-red-100 text-red-800';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+// Format paper type
+function formatPaperType(type) {
+    if (!type) return '';
+    return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
 // Update pagination
@@ -180,45 +287,40 @@ function updateCounts(total) {
     document.getElementById('papers-count').textContent = total;
 }
 
-// Show paper details
-function showPaperDetails(paperId) {
-    window.location.href = `/papers/${paperId}`;
-}
-
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial papers
     loadPapers();
     
-    // Search input
+    // Search handler with debouncing
     let searchTimeout;
-    document.getElementById('search').addEventListener('input', (e) => {
+    document.getElementById('search').addEventListener('input', function() {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
-            currentFilters.search = e.target.value;
+            currentFilters.search = this.value;
             loadPapers(1);
         }, 300);
     });
     
-    // Status filter
-    document.getElementById('status-filter').addEventListener('change', (e) => {
-        currentFilters.status = e.target.value;
+    // Filter handlers
+    document.getElementById('status-filter').addEventListener('change', function() {
+        currentFilters.status = this.value;
         loadPapers(1);
     });
     
-    // Type filter
-    document.getElementById('type-filter').addEventListener('change', (e) => {
-        currentFilters.type = e.target.value;
+    document.getElementById('type-filter').addEventListener('change', function() {
+        currentFilters.type = this.value;
         loadPapers(1);
     });
     
-    // Pagination
-    document.getElementById('prev-page').addEventListener('click', () => {
+    // Pagination handlers
+    document.getElementById('prev-page').addEventListener('click', function() {
         if (currentPage > 1) {
             loadPapers(currentPage - 1);
         }
     });
     
-    document.getElementById('next-page').addEventListener('click', () => {
+    document.getElementById('next-page').addEventListener('click', function() {
         if (currentPage < totalPages) {
             loadPapers(currentPage + 1);
         }

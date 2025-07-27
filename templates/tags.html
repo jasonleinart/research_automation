@@ -1,15 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Tags - ArXiv Content Automation{% endblock %}
+{% block page_title %}Research Tags{% endblock %}
+{% block page_subtitle %}Explore and manage tags across your research papers{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Page Header -->
-    <div class="bg-white rounded-lg shadow-sm p-6">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Research Tags</h1>
-        <p class="text-gray-600">Explore and manage tags across your research papers</p>
-    </div>
-
     <!-- Filters -->
     <div class="bg-white rounded-lg shadow-sm p-6">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -116,17 +112,21 @@ async function loadTags(page = 1) {
         const params = new URLSearchParams({
             page: page,
             per_page: 20,
-            ...currentFilters
+            category: currentFilters.category,
+            min_usage: currentFilters.min_usage,
+            sort_by: currentFilters.sort_by
         });
+
+        const response = await fetch(`/api/tags/?${params}`);
+        const data = await response.json();
         
-        const data = await fetchAPI(`/tags/?${params}`);
         displayTags(data.tags);
         updatePagination(data.total, data.page, data.per_page);
         updateCounts(data.total);
+        
     } catch (error) {
-        console.error('Failed to load tags:', error);
-        document.getElementById('tags-grid').innerHTML = 
-            '<div class="text-center text-red-600">Failed to load tags</div>';
+        console.error('Error loading tags:', error);
+        document.getElementById('tags-grid').innerHTML = '<div class="text-center text-red-500">Error loading tags</div>';
     }
 }
 
@@ -140,35 +140,38 @@ function displayTags(tags) {
     }
 
     container.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            ${tags.map(tag => `
-                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow card-hover">
-                    <div class="flex justify-between items-start mb-3">
-                        <div class="flex-1">
-                            <h4 class="font-semibold text-gray-900 mb-1">${tag.name}</h4>
-                            <span class="px-2 py-1 text-xs font-medium rounded-full ${getCategoryColor(tag.category)}">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            ${tags.map(tag => {
+                const categoryColor = getCategoryColor(tag.category);
+                return `
+                    <div class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="showTagDetails('${tag.id}')">
+                        <div class="flex justify-between items-start mb-3">
+                            <h4 class="font-semibold text-gray-900 text-lg">${tag.name}</h4>
+                            <span class="px-2 py-1 text-xs font-medium rounded-full ${categoryColor}">
                                 ${tag.category}
                             </span>
                         </div>
-                        <div class="text-right">
-                            <div class="text-2xl font-bold text-blue-600">${tag.usage_count}</div>
-                            <div class="text-xs text-gray-500">papers</div>
+                        
+                        <div class="space-y-2 text-sm text-gray-600">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    <span>${tag.usage_count} paper${tag.usage_count !== 1 ? 's' : ''}</span>
+                                </div>
+                                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                                    ${tag.usage_count}
+                                </span>
+                            </div>
+                            
+                            ${tag.description ? `
+                                <p class="text-gray-700 line-clamp-2">${tag.description}</p>
+                            ` : ''}
                         </div>
                     </div>
-                    
-                    ${tag.description ? `
-                        <p class="text-sm text-gray-600 mb-3">${tag.description}</p>
-                    ` : ''}
-                    
-                    <div class="flex items-center justify-between text-sm text-gray-500">
-                        <span>📅 Created: ${formatDate(tag.created_at)}</span>
-                        <button onclick="showTagDetails('${tag.id}')" 
-                                class="text-blue-600 hover:text-blue-800">
-                            View Papers
-                        </button>
-                    </div>
-                </div>
-            `).join('')}
+                `;
+            }).join('')}
         </div>
     `;
 }
@@ -182,6 +185,69 @@ function getCategoryColor(category) {
         case 'application': return 'bg-orange-100 text-orange-800';
         default: return 'bg-gray-100 text-gray-800';
     }
+}
+
+// Show tag details
+async function showTagDetails(tagId) {
+    try {
+        const response = await fetch(`/api/tags/${tagId}`);
+        const tag = await response.json();
+        
+        document.getElementById('modal-title').textContent = tag.name;
+        
+        const papersList = tag.papers.map(paper => `
+            <div class="border-b border-gray-200 py-3 last:border-b-0">
+                <h4 class="font-medium text-gray-900 mb-1">
+                    <a href="/papers/${paper.id}" class="hover:text-blue-600">${paper.title}</a>
+                </h4>
+                <div class="flex items-center text-sm text-gray-600 space-x-4">
+                    ${paper.author_names && paper.author_names.length > 0 ? 
+                        `<span>${paper.author_names.join(', ')}</span>` : ''
+                    }
+                    ${paper.publication_date ? 
+                        `<span>${formatDate(paper.publication_date)}</span>` : ''
+                    }
+                    ${paper.paper_type ? 
+                        `<span class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">${formatPaperType(paper.paper_type)}</span>` : ''
+                    }
+                </div>
+            </div>
+        `).join('');
+        
+        document.getElementById('modal-content').innerHTML = `
+            <div class="space-y-6">
+                <div>
+                    <h4 class="font-semibold text-gray-900 mb-2">Description</h4>
+                    <p class="text-gray-700">${tag.description || 'No description available'}</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-900 mb-2">Category</h4>
+                    <span class="px-3 py-1 text-sm font-medium rounded-full ${getCategoryColor(tag.category)}">
+                        ${tag.category}
+                    </span>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-900 mb-3">Associated Papers (${tag.papers.length})</h4>
+                    <div class="space-y-2 max-h-96 overflow-y-auto">
+                        ${papersList}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('tag-modal').classList.remove('hidden');
+        
+    } catch (error) {
+        console.error('Error loading tag details:', error);
+        alert('Error loading tag details');
+    }
+}
+
+// Close tag modal
+function closeTagModal() {
+    document.getElementById('tag-modal').classList.add('hidden');
 }
 
 // Update pagination
@@ -203,91 +269,50 @@ function updateCounts(total) {
     document.getElementById('tags-count').textContent = total;
 }
 
-// Show tag details modal
-async function showTagDetails(tagId) {
-    try {
-        const data = await fetchAPI(`/tags/${tagId}`);
-        
-        document.getElementById('modal-title').textContent = `Papers tagged with "${data.tag.name}"`;
-        
-        const content = document.getElementById('modal-content');
-        if (data.papers && data.papers.length > 0) {
-            content.innerHTML = `
-                <div class="space-y-4">
-                    <div class="bg-blue-50 p-4 rounded-lg">
-                        <h4 class="font-semibold text-blue-900">Tag Information</h4>
-                        <p class="text-blue-700">Category: ${data.tag.category}</p>
-                        <p class="text-blue-700">Usage: ${data.tag.usage_count} papers</p>
-                        ${data.tag.description ? `<p class="text-blue-700">Description: ${data.tag.description}</p>` : ''}
-                    </div>
-                    
-                    <div>
-                        <h4 class="font-semibold text-gray-900 mb-3">Associated Papers (${data.papers.length})</h4>
-                        <div class="space-y-3">
-                            ${data.papers.map(paper => `
-                                <div class="border border-gray-200 rounded-lg p-4">
-                                    <h5 class="font-medium text-gray-900 mb-2">${paper.title}</h5>
-                                    <p class="text-sm text-gray-600 mb-2">${paper.arxiv_id}</p>
-                                    <p class="text-sm text-gray-500">Published: ${formatDate(paper.publication_date)}</p>
-                                    <p class="text-sm text-gray-500">Status: ${paper.analysis_status}</p>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else {
-            content.innerHTML = `
-                <div class="text-center text-gray-500">
-                    <p>No papers found with this tag.</p>
-                </div>
-            `;
-        }
-        
-        document.getElementById('tag-modal').classList.remove('hidden');
-    } catch (error) {
-        console.error('Failed to load tag details:', error);
-        alert('Failed to load tag details');
-    }
-}
-
-// Close tag modal
-function closeTagModal() {
-    document.getElementById('tag-modal').classList.add('hidden');
+// Format paper type
+function formatPaperType(type) {
+    if (!type) return '';
+    return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial tags
     loadTags();
     
-    // Category filter
-    document.getElementById('category-filter').addEventListener('change', (e) => {
-        currentFilters.category = e.target.value;
+    // Filter handlers
+    document.getElementById('category-filter').addEventListener('change', function() {
+        currentFilters.category = this.value;
         loadTags(1);
     });
     
-    // Usage filter
-    document.getElementById('usage-filter').addEventListener('change', (e) => {
-        currentFilters.min_usage = e.target.value;
+    document.getElementById('usage-filter').addEventListener('change', function() {
+        currentFilters.min_usage = this.value;
         loadTags(1);
     });
     
-    // Sort by
-    document.getElementById('sort-by').addEventListener('change', (e) => {
-        currentFilters.sort_by = e.target.value;
+    document.getElementById('sort-by').addEventListener('change', function() {
+        currentFilters.sort_by = this.value;
         loadTags(1);
     });
     
-    // Pagination
-    document.getElementById('prev-page').addEventListener('click', () => {
+    // Pagination handlers
+    document.getElementById('prev-page').addEventListener('click', function() {
         if (currentPage > 1) {
             loadTags(currentPage - 1);
         }
     });
     
-    document.getElementById('next-page').addEventListener('click', () => {
+    document.getElementById('next-page').addEventListener('click', function() {
         if (currentPage < totalPages) {
             loadTags(currentPage + 1);
+        }
+    });
+    
+    // Close modal when clicking outside
+    document.getElementById('tag-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeTagModal();
         }
     });
 });

@@ -904,12 +904,19 @@ Remember: This should be a detailed, paper-specific executive summary that someo
     def _get_rubric_for_paper(self, paper: Paper) -> Optional[AnalysisRubric]:
         """Get the most appropriate rubric for a paper."""
         if paper.paper_type:
+            # For position papers, try to load the specific position paper rubric first
+            if paper.paper_type == PaperType.POSITION_PAPER:
+                position_rubric = self.rubric_loader.load_rubric("position_paper_default")
+                if position_rubric:
+                    return position_rubric
+            
+            # Get rubric using the standard method
             rubric = self.rubric_loader.get_rubric_for_paper_type(paper.paper_type)
             if rubric:
                 return rubric
             
             # Fallback logic for unsupported paper types
-            if paper.paper_type in [PaperType.POSITION_PAPER, PaperType.SURVEY_REVIEW]:
+            if paper.paper_type == PaperType.SURVEY_REVIEW:
                 return self.rubric_loader.load_rubric("survey_default")
             elif paper.paper_type == PaperType.CONCEPTUAL_FRAMEWORK:
                 return self.rubric_loader.load_rubric("framework_default")

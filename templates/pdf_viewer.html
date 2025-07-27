@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block title %}PDF Viewer - {{ paper.title }}{% endblock %}
+
+{% block page_title %}PDF Viewer{% endblock %}
+{% block page_subtitle %}{{ paper.title[:60] }}{% if paper.title|length > 60 %}...{% endif %}{% endblock %}
+
+{% block content %}
+<div class="flex bg-gray-50" style="height: calc(100vh - 140px);">
+    <!-- PDF Viewer -->
+    <div class="flex-1 bg-white rounded-lg shadow-sm m-4">
+        <div class="h-full">
+            <iframe 
+                src="/api/papers/{{ paper.id }}/pdf" 
+                class="w-full h-full border-0 rounded-lg"
+                onload="console.log('PDF loaded')"
+                onerror="console.error('PDF failed to load')">
+            </iframe>
+        </div>
+    </div>
+    
+    <!-- Notes Sidebar -->
+    <div class="w-80 bg-white rounded-lg shadow-sm m-4 flex flex-col">
+        <!-- Notes Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-t-lg">
+            <h3 class="text-lg font-semibold mb-1">Notes</h3>
+            <p class="text-sm opacity-90">{{ paper.title[:40] }}{% if paper.title|length > 40 %}...{% endif %}</p>
+        </div>
+        
+        <!-- Notes Content -->
+        <div class="flex-1 p-4 overflow-y-auto bg-gray-50">
+            <div id="notesList">
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <h4 class="font-medium mb-1">No notes yet</h4>
+                    <p class="text-sm">Click the + button to add your first note</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add Note Button -->
+        <div class="p-4 border-t border-gray-200">
+            <button 
+                onclick="showNoteForm()" 
+                class="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Add Note
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Note Form Modal - Positioned to not cover PDF -->
+<div id="noteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-start justify-end p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-sm mt-20">
+        <div class="p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Add Note</h3>
+                <button onclick="hideNoteForm()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <form id="noteForm">
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                    <input type="text" id="noteTitle" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Note title" required>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Content</label>
+                    <textarea id="noteContent" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" rows="3" placeholder="Write your note here..." required></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                    <select id="noteType" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        <option value="general">General</option>
+                        <option value="quote">Quote</option>
+                        <option value="question">Question</option>
+                        <option value="insight">Insight</option>
+                        <option value="todo">Todo</option>
+                    </select>
+                </div>
+                
+                <div class="flex gap-2">
+                    <button type="button" onclick="hideNoteForm()" class="flex-1 px-3 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors text-sm">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                        Save
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Note View Modal -->
+<div id="noteViewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold" id="viewNoteTitle">Note Title</h3>
+                <button onclick="hideNoteView()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="mb-4">
+                <p class="text-gray-600 text-sm mb-3" id="viewNoteContent">Note content...</p>
+                <div class="flex gap-2" id="viewNoteMeta">
+                    <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">general</span>
+                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">medium</span>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="editNote()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    Edit
+                </button>
+                <button onclick="deleteNote()" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const paperId = '{{ paper.id }}';
+    let notes = [];
+    let selectedNoteId = null;
+
+    // Load notes when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadNotes();
+    });
+
+    async function loadNotes() {
+        try {
+            const response = await fetch(`/api/papers/${paperId}/notes`);
+            const data = await response.json();
+            notes = data.notes || [];
+            renderNotes();
+        } catch (error) {
+            console.error('Error loading notes:', error);
+        }
+    }
+
+    function renderNotes() {
+        const container = document.getElementById('notesList');
+        
+        if (notes.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <h4 class="font-medium mb-1">No notes yet</h4>
+                    <p class="text-sm">Click the + button to add your first note</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = notes.map(note => `
+            <div class="bg-white rounded-lg p-4 mb-3 shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer" onclick="viewNote('${note.id}')">
+                <h4 class="font-medium text-gray-900 mb-2">${note.title}</h4>
+                <p class="text-sm text-gray-600 mb-3">${note.content.substring(0, 100)}${note.content.length > 100 ? '...' : ''}</p>
+                <div class="flex gap-2">
+                    <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">${note.note_type}</span>
+                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">${note.priority || 'medium'}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function viewNote(noteId) {
+        const note = notes.find(n => n.id === noteId);
+        if (!note) return;
+        
+        selectedNoteId = noteId;
+        document.getElementById('viewNoteTitle').textContent = note.title;
+        document.getElementById('viewNoteContent').textContent = note.content;
+        document.getElementById('viewNoteMeta').innerHTML = `
+            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">${note.note_type}</span>
+            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">${note.priority || 'medium'}</span>
+        `;
+        
+        document.getElementById('noteViewModal').classList.remove('hidden');
+    }
+
+    function hideNoteView() {
+        document.getElementById('noteViewModal').classList.add('hidden');
+        selectedNoteId = null;
+    }
+
+    function editNote() {
+        if (!selectedNoteId) return;
+        
+        const note = notes.find(n => n.id === selectedNoteId);
+        if (!note) return;
+        
+        // Pre-fill the form
+        document.getElementById('noteTitle').value = note.title;
+        document.getElementById('noteContent').value = note.content;
+        document.getElementById('noteType').value = note.note_type;
+        
+        // Hide view modal and show edit modal
+        hideNoteView();
+        showNoteForm();
+    }
+
+    async function deleteNote() {
+        if (!selectedNoteId) return;
+        
+        if (!confirm('Are you sure you want to delete this note?')) return;
+        
+        try {
+            const response = await fetch(`/api/papers/${paperId}/notes/${selectedNoteId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                notes = notes.filter(n => n.id !== selectedNoteId);
+                renderNotes();
+                hideNoteView();
+            } else {
+                throw new Error('Failed to delete note');
+            }
+        } catch (error) {
+            console.error('Error deleting note:', error);
+            alert('Error deleting note: ' + error.message);
+        }
+    }
+
+    function showNoteForm() {
+        document.getElementById('noteModal').classList.remove('hidden');
+        document.getElementById('noteTitle').focus();
+    }
+
+    function hideNoteForm() {
+        document.getElementById('noteModal').classList.add('hidden');
+        document.getElementById('noteForm').reset();
+    }
+
+    // Handle note form submission
+    document.getElementById('noteForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const noteData = {
+            title: document.getElementById('noteTitle').value,
+            content: document.getElementById('noteContent').value,
+            note_type: document.getElementById('noteType').value,
+            priority: 'medium',
+            tags: []
+        };
+        
+        try {
+            const response = await fetch(`/api/papers/${paperId}/notes`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(noteData)
+            });
+            
+            if (response.ok) {
+                const newNote = await response.json();
+                notes.push(newNote);
+                renderNotes();
+                hideNoteForm();
+            } else {
+                throw new Error('Failed to create note');
+            }
+        } catch (error) {
+            console.error('Error creating note:', error);
+            alert('Error creating note: ' + error.message);
+        }
+    });
+
+    // Close modals when clicking outside
+    document.getElementById('noteModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideNoteForm();
+        }
+    });
+
+    document.getElementById('noteViewModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideNoteView();
+        }
+    });
+</script>
+{% endblock %} 

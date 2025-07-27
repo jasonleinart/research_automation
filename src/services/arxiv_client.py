@@ -11,7 +11,8 @@ from urllib.parse import urlparse, parse_qs
 import httpx
 import xml.etree.ElementTree as ET
 
-from ..models.paper import Paper, Author
+from ..models.paper import Paper
+from ..models.author import Author
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,10 @@ class ArxivClient:
                 pdf_content = await self.download_pdf(arxiv_id)
                 
                 if pdf_content:
+                    # Store PDF content for proper viewing
+                    metadata['pdf_content'] = pdf_content
+                    logger.info(f"Successfully downloaded PDF ({len(pdf_content)} bytes)")
+                    
                     # Save PDF temporarily for text extraction
                     import tempfile
                     import os
@@ -223,4 +228,13 @@ class ArxivClient:
                 logger.error(f"Error extracting full text for {arxiv_id}: {e}")
                 # Continue with metadata only
         
-        return Paper(**metadata)
+        # Extract author names for separate processing
+        author_names = [author.name for author in metadata.pop('authors', [])]
+        
+        # Create paper without authors (they'll be handled separately)
+        paper = Paper(**metadata)
+        
+        # Store author names for later processing
+        paper._temp_author_names = author_names
+        
+        return paper

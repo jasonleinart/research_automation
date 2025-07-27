@@ -13,14 +13,6 @@ from .enums import (
 
 
 @dataclass
-class Author:
-    """Author information."""
-    name: str
-    affiliation: Optional[str] = None
-    email: Optional[str] = None
-
-
-@dataclass
 class Paper:
     """Core paper model."""
     # Required fields
@@ -30,10 +22,10 @@ class Paper:
     id: UUID = field(default_factory=uuid4)
     arxiv_id: Optional[str] = None
     abstract: Optional[str] = None
-    authors: List[Author] = field(default_factory=list)
     publication_date: Optional[date] = None
     categories: List[str] = field(default_factory=list)
     pdf_url: Optional[str] = None
+    pdf_content: Optional[bytes] = None
     full_text: Optional[str] = None
     citation_count: int = 0
     
@@ -72,7 +64,14 @@ class Paper:
     @property
     def author_names(self) -> List[str]:
         """Get list of author names."""
-        return [author.name for author in self.authors]
+        # This will be populated by the repository when loading papers
+        return getattr(self, '_author_names', [])
+    
+    @property
+    def authors(self) -> List['Author']:
+        """Get list of author objects."""
+        # This will be populated by the repository when loading papers
+        return getattr(self, '_authors', [])
     
     @property
     def is_analyzed(self) -> bool:
@@ -86,17 +85,11 @@ class Paper:
             'arxiv_id': self.arxiv_id,
             'title': self.title,
             'abstract': self.abstract,
-            'authors': [
-                {
-                    'name': author.name,
-                    'affiliation': author.affiliation,
-                    'email': author.email
-                }
-                for author in self.authors
-            ],
+            # Authors are now stored in separate table - no longer in dict
             'publication_date': self.publication_date,
             'categories': self.categories,
             'pdf_url': self.pdf_url,
+            'pdf_content': self.pdf_content,
             'full_text': self.full_text,
             'citation_count': self.citation_count,
             'paper_type': self.paper_type.value if self.paper_type else None,
@@ -116,15 +109,8 @@ class Paper:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Paper':
         """Create Paper from dictionary."""
-        # Convert authors from dict to Author objects
+        # Authors are now loaded separately via repository
         authors = []
-        if data.get('authors'):
-            for author_data in data['authors']:
-                if isinstance(author_data, dict):
-                    authors.append(Author(**author_data))
-                else:
-                    # Handle case where author is just a string
-                    authors.append(Author(name=str(author_data)))
         
         # Convert enum strings back to enums
         paper_type = PaperType(data['paper_type']) if data.get('paper_type') else None
@@ -137,10 +123,11 @@ class Paper:
             arxiv_id=data.get('arxiv_id'),
             title=data['title'],
             abstract=data.get('abstract'),
-            authors=authors,
+            # authors are loaded separately
             publication_date=data.get('publication_date'),
             categories=data.get('categories', []),
             pdf_url=data.get('pdf_url'),
+            pdf_content=data.get('pdf_content'),
             full_text=data.get('full_text'),
             citation_count=data.get('citation_count', 0),
             paper_type=paper_type,

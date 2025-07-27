@@ -3,18 +3,23 @@ Papers API endpoints
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Response
+from fastapi.responses import StreamingResponse
+import logging
 from uuid import UUID
+import io
 
 from src.database.connection import db_manager
 from src.database.paper_repository import PaperRepository
 from src.database.insight_repository import InsightRepository
 from src.database.tag_repository import PaperTagRepository, TagRepository
+from src.database.note_repository import NoteRepository
 from src.web.models.schemas import (
     PaperListResponse, PaperDetailResponse, PaperSchema, AuthorSchema, InsightSchema, TagSchema
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/", response_model=PaperListResponse)
 async def list_papers(
@@ -48,39 +53,43 @@ async def list_papers(
         if status:
             papers = [p for p in papers if p.analysis_status.value == status]
         
+        # Load authors for these papers
+        paper_ids = [paper.id for paper in papers]
+        papers_with_authors = await repo.get_papers_with_authors(paper_ids)
+        
         # Get total count for pagination
         total = len(papers)  # This is simplified - in production you'd want a proper count query
         
         # Convert to schemas
         paper_schemas = []
-        for paper in papers:
-            # Handle authors properly
+        insight_repo = InsightRepository()
+        paper_tag_repo = PaperTagRepository()
+        
+        for paper in papers_with_authors:
+            # Get authors from the new relational system
             authors = []
-            if paper.authors:
-                for author in paper.authors:
-                    # Simple approach: just use the string representation
-                    author_name = str(author)
-                    # Clean up common patterns
-                    if "Author(name=" in author_name:
-                        # Try to extract just the name part
-                        if "name='" in author_name:
-                            parts = author_name.split("name='")
-                            if len(parts) > 1:
-                                name_part = parts[1]
-                                if "'" in name_part:
-                                    author_name = name_part.split("'")[0]
-                                else:
-                                    author_name = "Unknown Author"
-                            else:
-                                author_name = "Unknown Author"
-                        else:
-                            author_name = "Unknown Author"
-                    elif hasattr(author, 'name'):
-                        author_name = author.name
-                    elif isinstance(author, dict):
-                        author_name = author.get('name', 'Unknown')
-                    
+            if hasattr(paper, '_author_names') and paper._author_names:
+                for author_name in paper._author_names:
                     authors.append(AuthorSchema(name=author_name))
+            else:
+                # Fallback: try to get authors from the repository
+                try:
+                    from src.database.author_repository import AuthorRepository
+                    author_repo = AuthorRepository()
+                    paper_authors = await author_repo.get_paper_authors(paper.id)
+                    for author in paper_authors:
+                        authors.append(AuthorSchema(name=author.name))
+                except Exception as e:
+                    # If we can't get authors, just continue
+                    pass
+            
+            # Get insight count for this paper
+            insights = await insight_repo.get_by_paper_id(paper.id)
+            insight_count = len(insights)
+            
+            # Get tags count for this paper
+            paper_tags = await paper_tag_repo.get_by_paper(paper.id)
+            tags_count = len(paper_tags)
             
             paper_schema = PaperSchema(
                 id=paper.id,
@@ -92,10 +101,17 @@ async def list_papers(
                 categories=paper.categories,
                 paper_type=paper.paper_type,
                 analysis_status=paper.analysis_status,
+                has_full_text=bool(paper.full_text),  # Check if full text exists
                 created_at=paper.created_at,
                 updated_at=paper.updated_at
             )
-            paper_schemas.append(paper_schema)
+            
+            # Add computed fields to the schema
+            paper_dict = paper_schema.model_dump()
+            paper_dict['insight_count'] = insight_count
+            paper_dict['tags_count'] = tags_count
+            
+            paper_schemas.append(paper_dict)
         
         total_pages = (total + per_page - 1) // per_page
         
@@ -139,14 +155,20 @@ async def get_paper(paper_id: UUID):
         
         # Convert to schema
         authors = []
-        if paper.authors:
-            for author in paper.authors:
-                if hasattr(author, 'name'):
+        if hasattr(paper, '_author_names') and paper._author_names:
+            for author_name in paper._author_names:
+                authors.append(AuthorSchema(name=author_name))
+        else:
+            # Fallback: try to get authors from the repository
+            try:
+                from src.database.author_repository import AuthorRepository
+                author_repo = AuthorRepository()
+                paper_authors = await author_repo.get_paper_authors(paper.id)
+                for author in paper_authors:
                     authors.append(AuthorSchema(name=author.name))
-                elif isinstance(author, dict):
-                    authors.append(AuthorSchema(name=author.get('name', 'Unknown')))
-                else:
-                    authors.append(AuthorSchema(name=str(author)))
+            except Exception as e:
+                # If we can't get authors, just continue
+                pass
         
         paper_schema = PaperSchema(
             id=paper.id,
@@ -158,6 +180,7 @@ async def get_paper(paper_id: UUID):
             categories=paper.categories,
             paper_type=paper.paper_type,
             analysis_status=paper.analysis_status,
+            has_full_text=bool(paper.full_text),  # Check if full text exists
             created_at=paper.created_at,
             updated_at=paper.updated_at
         )
@@ -226,10 +249,17 @@ async def search_papers(
         # Filter by search query
         papers = []
         for paper in all_papers:
+            # Check title and abstract
             if (q.lower() in paper.title.lower() or 
-                q.lower() in paper.abstract.lower() or
-                any(q.lower() in author.name.lower() for author in paper.authors)):
+                q.lower() in paper.abstract.lower()):
                 papers.append(paper)
+                continue
+            
+            # Check authors if available
+            if hasattr(paper, '_author_names') and paper._author_names:
+                if any(q.lower() in author_name.lower() for author_name in paper._author_names):
+                    papers.append(paper)
+                    continue
         
         # Apply pagination
         offset = (page - 1) * per_page
@@ -248,11 +278,8 @@ async def search_papers(
                 publication_date=paper.publication_date,
                 categories=paper.categories,
                 paper_type=paper.paper_type,
-                evidence_strength=paper.evidence_strength,
-                novelty_score=paper.novelty_score,
-                practical_applicability=paper.practical_applicability,
                 analysis_status=paper.analysis_status,
-                analysis_confidence=paper.analysis_confidence,
+                has_full_text=bool(paper.full_text),  # Check if full text exists
                 created_at=paper.created_at,
                 updated_at=paper.updated_at
             )
@@ -294,3 +321,87 @@ async def get_paper_stats():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching paper stats: {str(e)}") 
+
+@router.get("/{paper_id}/pdf")
+async def get_paper_pdf(paper_id: UUID):
+    """Serve PDF file for a paper."""
+    try:
+        await db_manager.initialize()
+        async with db_manager.get_connection() as conn:
+            # Get paper with PDF content
+            row = await conn.fetchrow("""
+                SELECT title, full_text, pdf_content 
+                FROM papers 
+                WHERE id = $1
+            """, paper_id)
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Paper not found")
+            
+            # If we have PDF content, serve it as PDF
+            if row['pdf_content']:
+                return Response(
+                    content=row['pdf_content'],
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=\"{row['title'][:50]}.pdf\""}
+                )
+            
+            # Otherwise, serve full text as plain text
+            if row['full_text']:
+                return Response(
+                    content=row['full_text'],
+                    media_type="text/plain",
+                    headers={"Content-Disposition": f"inline; filename=\"{row['title'][:50]}.txt\""}
+                )
+            
+            raise HTTPException(status_code=404, detail="No PDF or full text available")
+            
+    except Exception as e:
+        logger.error(f"Error serving PDF for paper {paper_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/{paper_id}/notes")
+async def get_paper_notes(paper_id: UUID):
+    """Get all notes for a paper."""
+    try:
+        await db_manager.initialize()
+        repo = NoteRepository()
+        
+        notes = await repo.get_notes_by_paper(paper_id)
+        return {"notes": [note.to_dict() for note in notes]}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
+
+@router.post("/{paper_id}/notes")
+async def create_paper_note(paper_id: UUID, note_data: dict):
+    """Create a new note for a paper."""
+    try:
+        await db_manager.initialize()
+        repo = NoteRepository()
+        
+        from src.models.note import Note
+        from src.models.enums import NoteType, NotePriority
+        
+        note = Note(
+            title=note_data.get("title", "Untitled Note"),
+            content=note_data.get("content", ""),
+            paper_id=paper_id,
+            note_type=NoteType(note_data.get("note_type", "general")),
+            priority=NotePriority(note_data.get("priority", "medium")),
+            page_number=note_data.get("page_number"),
+            x_position=note_data.get("x_position"),
+            y_position=note_data.get("y_position"),
+            width=note_data.get("width"),
+            height=note_data.get("height"),
+            selected_text=note_data.get("selected_text"),
+            annotation_color=note_data.get("annotation_color"),
+            tags=note_data.get("tags", []),
+            context_section=note_data.get("context_section")
+        )
+        
+        created_note = await repo.create_note(note)
+        return created_note.to_dict()
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating note: {str(e)}") 

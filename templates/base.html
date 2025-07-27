@@ -23,45 +23,94 @@
             transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         }
+        .sidebar-link {
+            transition: all 0.2s ease;
+        }
+        .sidebar-link:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .sidebar-link.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-right: 3px solid white;
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <!-- Navigation -->
-    <nav class="gradient-bg text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
-                <div class="flex items-center">
+    <div class="flex h-screen">
+        <!-- Sidebar Navigation -->
+        <nav class="gradient-bg text-white w-64 flex-shrink-0 shadow-lg">
+            <div class="p-6">
+                <div class="flex items-center mb-8">
                     <h1 class="text-xl font-bold">📊 ArXiv Dashboard</h1>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <a href="/" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-white hover:bg-opacity-20 transition-colors">
+                
+                <nav class="space-y-2">
+                    <a href="/" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/' %}active{% endif %}">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5a2 2 0 012-2h4a2 2 0 012 2v6H8V5z"></path>
+                        </svg>
                         Overview
                     </a>
-                    <a href="/papers" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <a href="/papers" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/papers' %}active{% endif %}">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
                         Papers
                     </a>
-                    <a href="/insights" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <a href="/insights" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/insights' %}active{% endif %}">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
                         Insights
                     </a>
-                    <a href="/tags" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-white hover:bg-opacity-20 transition-colors">
+                    <a href="/tags" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/tags' %}active{% endif %}">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                        </svg>
                         Tags
                     </a>
-                </div>
+                                               <a href="/reader" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/reader' %}active{% endif %}">
+                               <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                               </svg>
+                               Reader
+                           </a>
+                           <a href="/chat" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors {% if request.path == '/chat' %}active{% endif %}">
+                               <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                               </svg>
+                               Chat
+                           </a>
+                </nav>
             </div>
-        </div>
-    </nav>
+        </nav>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {% block content %}{% endblock %}
-    </main>
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-900">{% block page_title %}Dashboard{% endblock %}</h2>
+                            <p class="text-sm text-gray-600 mt-1">{% block page_subtitle %}Research content automation and analysis{% endblock %}</p>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <!-- Add any header actions here -->
+                        </div>
+                    </div>
+                </div>
+            </header>
 
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-white py-4 mt-12">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <p>&copy; 2024 ArXiv Content Automation System</p>
+            <!-- Main Content -->
+            <main class="flex-1 overflow-auto bg-gray-50">
+                <div class="p-6">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
         </div>
-    </footer>
+    </div>
 
     <!-- Loading indicator -->
     <div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

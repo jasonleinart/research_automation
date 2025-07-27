@@ -6,11 +6,13 @@ import re
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from datetime import date
 
 import PyPDF2
 import pdfplumber
 
-from ..models.paper import Paper, Author
+from ..models.paper import Paper
+from ..models.author import Author
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +171,17 @@ class PDFProcessor:
                 metadata['title'] = filename.replace('_', ' ').replace('-', ' ').title()
                 logger.warning(f"No title found, using filename: {metadata['title']}")
             
-            return Paper(**metadata)
+            # Extract author names for separate processing
+            author_names = [author.name for author in metadata.pop('authors', [])]
+            
+            # Create paper without authors (they'll be handled separately)
+            paper = Paper(**metadata)
+            
+            # Store author names for later processing
+            if author_names:
+                paper._temp_author_names = author_names
+            
+            return paper
             
         except Exception as e:
             logger.error(f"Failed to process PDF {pdf_path}: {e}")

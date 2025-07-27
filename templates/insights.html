@@ -1,15 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Insights - ArXiv Content Automation{% endblock %}
+{% block page_title %}Research Insights{% endblock %}
+{% block page_subtitle %}Explore extracted insights from your research papers{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Page Header -->
-    <div class="bg-white rounded-lg shadow-sm p-6">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Research Insights</h1>
-        <p class="text-gray-600">Explore extracted insights from your research papers</p>
-    </div>
-
     <!-- Filters -->
     <div class="bg-white rounded-lg shadow-sm p-6">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -17,10 +13,13 @@
                 <label for="type-filter" class="block text-sm font-medium text-gray-700 mb-1">Insight Type</label>
                 <select id="type-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">All Types</option>
+                    <option value="key_finding">Key Finding</option>
+                    <option value="concept">Concept</option>
+                    <option value="future_work">Future Work</option>
+                    <option value="application">Application</option>
                     <option value="methodology">Methodology</option>
                     <option value="finding">Finding</option>
                     <option value="limitation">Limitation</option>
-                    <option value="future_work">Future Work</option>
                 </select>
             </div>
             <div>
@@ -48,7 +47,7 @@
     <div class="bg-white rounded-lg shadow-sm">
         <div class="px-6 py-4 border-b border-gray-200">
             <div class="flex justify-between items-center">
-                <h3 class="text-lg font-semibold text-gray-900">Insights</h3>
+                <h3 class="text-lg font-semibold text-gray-900">Insights by Paper</h3>
                 <div class="text-sm text-gray-600">
                     <span id="insights-count">Loading...</span> insights found
                 </div>
@@ -95,18 +94,22 @@ async function loadInsights(page = 1) {
     try {
         const params = new URLSearchParams({
             page: page,
-            per_page: 10,
-            ...currentFilters
+            per_page: 20,
+            insight_type: currentFilters.insight_type,
+            min_confidence: currentFilters.min_confidence,
+            sort_by: currentFilters.sort_by
         });
+
+        const response = await fetch(`/api/insights/?${params}`);
+        const data = await response.json();
         
-        const data = await fetchAPI(`/insights/?${params}`);
         displayInsights(data.insights);
         updatePagination(data.total, data.page, data.per_page);
         updateCounts(data.total);
+        
     } catch (error) {
-        console.error('Failed to load insights:', error);
-        document.getElementById('insights-list').innerHTML = 
-            '<div class="p-6 text-center text-red-600">Failed to load insights</div>';
+        console.error('Error loading insights:', error);
+        document.getElementById('insights-list').innerHTML = '<div class="p-6 text-center text-red-500">Error loading insights</div>';
     }
 }
 
@@ -119,114 +122,488 @@ function displayInsights(insights) {
         return;
     }
 
-    container.innerHTML = insights.map(insight => {
-        // Parse the content - it's stored as a Python dict string, not JSON
-        let contentObj = {};
-        let contentStr = insight.content || '';
-        
-        try {
-            if (typeof contentStr === 'string') {
-                // Handle Python dict string format (single quotes)
-                if (contentStr.trim().startsWith('{')) {
-                    // Convert Python dict string to JSON format
-                    const jsonStr = contentStr
-                        .replace(/'/g, '"')  // Replace single quotes with double quotes
-                        .replace(/True/g, 'true')  // Replace Python True with JSON true
-                        .replace(/False/g, 'false')  // Replace Python False with JSON false
-                        .replace(/None/g, 'null');  // Replace Python None with JSON null
-                    contentObj = JSON.parse(jsonStr);
-                }
-            } else if (typeof contentStr === 'object') {
-                contentObj = contentStr;
-            }
-        } catch (e) {
-            console.warn('Failed to parse insight content:', e);
-            // Fallback: treat the entire content as the key finding
-            contentObj = { significance: contentStr };
+    // Group insights by paper
+    const insightsByPaper = {};
+    insights.forEach(insight => {
+        if (!insightsByPaper[insight.paper_id]) {
+            insightsByPaper[insight.paper_id] = [];
         }
+        insightsByPaper[insight.paper_id].push(insight);
+    });
+
+    container.innerHTML = Object.entries(insightsByPaper).map(([paperId, paperInsights], index) => {
+        const firstInsight = paperInsights[0];
+        const paperTitle = firstInsight.paper_title || 'Unknown Paper';
+        const arxivId = firstInsight.arxiv_id || '';
+        const createdDate = firstInsight.created_at ? new Date(firstInsight.created_at).toLocaleDateString() : '';
         
-        // Extract the key finding from significance field
-        const keyFinding = contentObj.significance || insight.title || 'No key finding available';
-        
-        // Define the rubric sections in order
-        const rubricSections = [
-            { key: 'audience_hook', title: 'Audience Hook', description: 'Who this research is for and why they should care' },
-            { key: 'problem_solved', title: 'Problem Solved', description: 'The specific problem this research addresses' },
-            { key: 'practical_impact', title: 'Practical Impact', description: 'Real-world applications and benefits' },
-            { key: 'field_advancement', title: 'Field Advancement', description: 'How this advances the research field' },
-            { key: 'main_contribution', title: 'Main Contribution', description: 'The primary contribution of this work' },
-            { key: 'surprising_insight', title: 'Surprising Insight', description: 'Unexpected or counterintuitive findings' }
-        ];
-        
-        // Build the rubric sections HTML
-        const rubricHtml = rubricSections.map(section => {
-            const content = contentObj[section.key];
-            if (!content) return '';
+        // Group insights by type
+        const insightsByType = {};
+        paperInsights.forEach(insight => {
+            if (!insightsByType[insight.insight_type]) {
+                insightsByType[insight.insight_type] = [];
+            }
+            insightsByType[insight.insight_type].push(insight);
+        });
+
+        // Create insight category sections
+        const insightCategories = Object.entries(insightsByType)
+            .sort(([typeA], [typeB]) => {
+                // Define the desired order
+                const order = ['key_finding', 'concept', 'application', 'future_work'];
+                const indexA = order.indexOf(typeA);
+                const indexB = order.indexOf(typeB);
+                
+                // If both types are in the order list, sort by their position
+                if (indexA !== -1 && indexB !== -1) {
+                    return indexA - indexB;
+                }
+                
+                // If only one is in the order list, prioritize it
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                
+                // If neither is in the order list, sort alphabetically
+                return typeA.localeCompare(typeB);
+            })
+            .map(([insightType, typeInsights]) => {
+            const insightTypeDisplay = insightType.replace(/_/g, ' ');
+            const insightCount = typeInsights.length;
             
+            // Create detailed content for each insight type
+            const detailedContent = typeInsights.map(insight => {
+                let contentHtml = '';
+                
+                if (insight.insight_type === 'key_finding') {
+                    // Handle Key Finding with rubric sections
+                    try {
+                        let content;
+                        if (typeof insight.content === 'string') {
+                            content = JSON.parse(insight.content);
+                        } else {
+                            content = insight.content;
+                        }
+                        
+                        const rubricSections = ['problem_solved', 'main_contribution', 'field_advancement', 'practical_impact', 'significance', 'surprising_insight'];
+                        contentHtml = rubricSections.map(section => {
+                            const sectionData = content[section];
+                            if (sectionData) {
+                                const sectionTitle = section.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                                return `
+                                    <div class="mb-4">
+                                        <h4 class="font-semibold text-gray-800 mb-2">${sectionTitle}:</h4>
+                                        <p class="text-gray-700">${sectionData}</p>
+                                    </div>
+                                `;
+                            }
+                            return '';
+                        }).join('');
+                    } catch (error) {
+                        console.error('Error parsing Key Finding content:', error);
+                        contentHtml = `
+                            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                <h4 class="text-red-800 font-semibold mb-2">Error Parsing Key Finding Content</h4>
+                                <p class="text-red-700 text-sm mb-2">${error.message}</p>
+                                <details class="text-xs">
+                                    <summary class="cursor-pointer text-red-600">Show raw content</summary>
+                                    <pre class="mt-2 text-red-800 bg-red-100 p-2 rounded overflow-auto">${insight.content}</pre>
+                                </details>
+                            </div>
+                        `;
+                    }
+                } else {
+                    // Handle position-specific insights (CONCEPT, FUTURE_WORK, APPLICATION)
+                    try {
+                        let content;
+                        if (typeof insight.content === 'string') {
+                            // Special handling for Future Work which has complex nested structures
+                            if (insight.insight_type === 'future_work') {
+                                // Use a more robust approach for Future Work
+                                try {
+                                    // First, try the standard JSON parsing
+                                    let jsonString = insight.content
+                                        .replace(/'/g, '"')
+                                        .replace(/True/g, 'true')
+                                        .replace(/False/g, 'false')
+                                        .replace(/None/g, 'null');
+                                    
+                                    // Additional cleaning for complex nested structures
+                                    jsonString = jsonString
+                                        .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+                                        .replace(/([^\\])"/g, '$1\\"') // Escape unescaped quotes
+                                        .replace(/\\"/g, '"'); // Then unescape properly
+                                    
+                                    content = JSON.parse(jsonString);
+                                    console.log('Future Work parsed successfully:', content);
+                                } catch (parseError) {
+                                    console.error("Future Work parsing failed:", parseError);
+                                    console.error("Original content:", insight.content);
+                                    
+                                    // Try a more aggressive approach
+                                    try {
+                                        // Use eval for Python dictionary (safe in this context)
+                                        let cleanedContent = insight.content
+                                            .replace(/True/g, 'true')
+                                            .replace(/False/g, 'false')
+                                            .replace(/None/g, 'null');
+                                        
+                                        // Create a safe evaluation context
+                                        const safeEval = new Function('return ' + cleanedContent);
+                                        content = safeEval();
+                                        console.log('Future Work parsed with eval:', content);
+                                    } catch (evalError) {
+                                        console.error("Eval parsing also failed:", evalError);
+                                        // Fallback: create a simple display of the raw content
+                                        content = {
+                                            raw_content: insight.content,
+                                            parse_error: true
+                                        };
+                                    }
+                                }
+                            } else {
+                                // For other insight types, use standard parsing
+                                let jsonString = insight.content
+                                    .replace(/'/g, '"')
+                                    .replace(/True/g, 'true')
+                                    .replace(/False/g, 'false')
+                                    .replace(/None/g, 'null');
+                                
+                                content = JSON.parse(jsonString);
+                            }
+                        } else {
+                            content = insight.content; // Already an object
+                        }
+                        
+                        console.log('Parsed content for', insight.insight_type, ':', content);
+                        
+                        // Handle Future Work with fallback display
+                        if (insight.insight_type === 'future_work' && content.parse_error) {
+                            contentHtml = `
+                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <h4 class="text-yellow-800 font-semibold mb-2">Future Work Content</h4>
+                                    <p class="text-yellow-700 text-sm mb-2">Content available but requires manual parsing</p>
+                                    <details class="text-xs">
+                                        <summary class="cursor-pointer text-yellow-600">► Show raw content</summary>
+                                        <pre class="mt-2 text-yellow-800 bg-yellow-100 p-2 rounded overflow-auto max-h-96">${content.raw_content}</pre>
+                                    </details>
+                                </div>
+                            `;
+                        } else if (insight.insight_type === 'application') {
+                            contentHtml = `
+                                <div class="space-y-4">
+                                    ${content.impact_areas ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Impact Areas</h5>
+                                            <div class="space-y-3">
+                                                ${content.impact_areas.map(area => `
+                                                    <div class="border-l-4 border-blue-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${area.area}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1">${area.description}</p>
+                                                        <p class="text-xs text-gray-500 mt-1"><strong>Significance:</strong> ${area.significance}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.adoption_barriers ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Adoption Barriers</h5>
+                                            <div class="space-y-3">
+                                                ${content.adoption_barriers.map(barrier => `
+                                                    <div class="border-l-4 border-orange-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${barrier.barrier}</h6>
+                                                        <p class="text-xs text-gray-500 mt-1"><strong>Severity:</strong> ${barrier.severity}</p>
+                                                        <p class="text-sm text-gray-600 mt-1"><strong>Mitigation:</strong> ${barrier.mitigation}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.industry_relevance ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Industry Relevance</h5>
+                                            <p class="text-sm text-gray-600">${content.industry_relevance}</p>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.stakeholder_groups ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Stakeholder Groups</h5>
+                                            <div class="space-y-3">
+                                                ${content.stakeholder_groups.map(group => `
+                                                    <div class="border-l-4 border-green-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${group.group}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1"><strong>Concerns:</strong> ${group.concerns}</p>
+                                                        <p class="text-xs text-gray-500 mt-1"><strong>Impact Level:</strong> ${group.impact_level}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.research_implications ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Research Implications</h5>
+                                            <p class="text-sm text-gray-600">${content.research_implications}</p>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        } else if (insight.insight_type === 'future_work') {
+                            contentHtml = `
+                                <div class="space-y-4">
+                                    ${content.challenges_risks ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Challenges & Risks</h5>
+                                            <div class="space-y-3">
+                                                ${content.challenges_risks.map(challenge => `
+                                                    <div class="border-l-4 border-red-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${challenge.challenge}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1"><strong>Mitigation:</strong> ${challenge.mitigation}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.timeline_roadmap ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Timeline & Roadmap</h5>
+                                            <div class="space-y-3">
+                                                ${content.timeline_roadmap.map(phase => `
+                                                    <div class="border-l-4 border-purple-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${phase.phase}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1">${phase.goals}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.expected_outcomes ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Expected Outcomes</h5>
+                                            <div class="space-y-3">
+                                                ${content.expected_outcomes.map(outcome => `
+                                                    <div class="border-l-4 border-green-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${outcome.outcome}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1">${outcome.impact}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.proposed_solution ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Proposed Solution</h5>
+                                            <p class="text-sm text-gray-600">${content.proposed_solution}</p>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.implementation_steps ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Implementation Steps</h5>
+                                            <div class="space-y-3">
+                                                ${content.implementation_steps.map((step, index) => `
+                                                    <div class="border-l-4 border-blue-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${index + 1}. ${step.step}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1">${step.description}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        } else if (insight.insight_type === 'concept') {
+                            contentHtml = `
+                                <div class="space-y-4">
+                                    ${content.main_position ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Main Position</h5>
+                                            <p class="text-sm text-gray-600">${content.main_position}</p>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.context_background ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Context & Background</h5>
+                                            <p class="text-sm text-gray-600">${content.context_background}</p>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.supporting_arguments ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Supporting Arguments</h5>
+                                            <div class="space-y-3">
+                                                ${content.supporting_arguments.map((arg, index) => `
+                                                    <div class="border-l-4 border-green-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${index + 1}. ${arg.argument}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1"><strong>Evidence:</strong> ${arg.evidence}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.counter_arguments ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Counter Arguments</h5>
+                                            <div class="space-y-3">
+                                                ${content.counter_arguments.map((arg, index) => `
+                                                    <div class="border-l-4 border-orange-500 pl-3">
+                                                        <h6 class="font-medium text-gray-700">${index + 1}. ${arg.argument}</h6>
+                                                        <p class="text-sm text-gray-600 mt-1"><strong>Response:</strong> ${arg.response}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${content.stakeholders_impacted ? `
+                                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                            <h5 class="font-semibold text-gray-800 mb-3">Stakeholders Impacted</h5>
+                                            <ul class="list-disc list-inside space-y-1">
+                                                ${content.stakeholders_impacted.map(stakeholder => `
+                                                    <li class="text-sm text-gray-600">${stakeholder}</li>
+                                                `).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        } else {
+                            contentHtml = `
+                                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <h4 class="text-yellow-800 font-semibold mb-2">Unsupported Insight Type</h4>
+                                    <p class="text-yellow-700 text-sm">Type: ${insight.insight_type}</p>
+                                    <details class="text-xs mt-2">
+                                        <summary class="cursor-pointer text-yellow-600">Show raw content</summary>
+                                        <pre class="mt-2 text-yellow-800 bg-yellow-100 p-2 rounded overflow-auto">${JSON.stringify(content, null, 2)}</pre>
+                                    </details>
+                                </div>
+                            `;
+                        }
+                    } catch (error) {
+                        console.error('Error parsing insight content:', error);
+                        contentHtml = `
+                            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                <h4 class="text-red-800 font-semibold mb-2">Error Parsing Content</h4>
+                                <p class="text-red-700 text-sm mb-2">${error.message}</p>
+                                <details class="text-xs">
+                                    <summary class="cursor-pointer text-red-600">Show raw content</summary>
+                                    <pre class="mt-2 text-red-800 bg-red-100 p-2 rounded overflow-auto">${insight.content}</pre>
+                                </details>
+                            </div>
+                        `;
+                    }
+                }
+
+                return `
+                    <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                        <div class="flex items-center justify-end mb-3">
+                            <span class="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                                Confidence: ${Math.round(insight.confidence * 100)}%
+                            </span>
+                        </div>
+                        <div class="prose prose-sm max-w-none">
+                            ${contentHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
             return `
-                <div class="bg-gray-50 p-4 rounded-lg mb-4">
-                    <h4 class="font-semibold text-gray-900 mb-2">${section.title}</h4>
-                    <p class="text-sm text-gray-600 mb-1">${section.description}</p>
-                    <p class="text-gray-800 leading-relaxed">${content}</p>
+                <div class="insight-category mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="insight-category-toggle w-full flex items-center justify-between p-3 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors" 
+                            onclick="toggleInsightCategory(this)">
+                        <div class="flex items-center">
+                            <svg class="w-4 h-4 mr-2 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                            <span class="font-medium text-gray-800">${insightTypeDisplay}</span>
+                            <span class="ml-2 text-sm bg-gray-200 text-gray-700 px-2 py-1 rounded-full">${insightCount}</span>
+                        </div>
+                    </button>
+                    <div class="insight-category-content hidden mt-2 pl-6">
+                        ${detailedContent}
+                    </div>
                 </div>
             `;
         }).join('');
-        
+
         return `
-            <div class="p-6 hover:bg-gray-50 transition-colors border-b border-gray-200">
-                <div class="flex justify-between items-start mb-4">
-                    <div class="flex items-center gap-3">
-                        <span class="px-3 py-1 text-xs font-medium rounded-full ${getTypeColor(insight.insight_type)}">
-                            ${insight.insight_type.replace(/_/g, ' ').toUpperCase()}
-                        </span>
-                        ${insight.confidence ? `<span class="text-sm text-gray-600">Confidence: ${(insight.confidence * 100).toFixed(0)}%</span>` : ''}
+            <div class="paper-accordion mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                <button class="paper-toggle w-full flex items-center justify-between p-4 bg-white hover:bg-gray-50 transition-colors" 
+                        onclick="togglePaper(this)">
+                    <div class="flex-1 text-left">
+                        <h3 class="font-semibold text-gray-900 mb-1">${paperTitle}</h3>
+                        <div class="flex items-center text-sm text-gray-500 space-x-4">
+                            ${arxivId ? `<span>ArXiv: ${arxivId}</span>` : ''}
+                            <span>${paperInsights.length} insight${paperInsights.length !== 1 ? 's' : ''}</span>
+                        </div>
                     </div>
-                    <div class="ml-6 text-right text-sm text-gray-500">
-                        ${formatDate(insight.created_at)}
-                    </div>
-                </div>
-                
-                <!-- Key Finding (Main Content) -->
-                <div class="mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900 mb-3">${insight.title}</h3>
-                </div>
-                
-                ${insight.description ? `<p class="text-gray-700 mb-4">${insight.description}</p>` : ''}
-                
-                <!-- Rubric Sections -->
-                ${rubricHtml ? `
-                    <div class="mt-6">
-                        <h4 class="text-md font-semibold text-gray-900 mb-4">Detailed Analysis</h4>
-                        ${rubricHtml}
-                    </div>
-                ` : ''}
-                
-                <!-- Paper Information -->
-                <div class="mt-4 pt-4 border-t border-gray-200">
-                    <div class="flex items-center text-sm text-gray-600">
-                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-sm text-gray-500">${createdDate}</span>
+                        <svg class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                         </svg>
-                        <span class="mr-2">From paper:</span>
-                        ${insight.paper_title ? 
-                            `<a href="/papers/${insight.paper_id}" class="text-blue-600 hover:underline font-medium">${insight.paper_title}</a>` : 
-                            `<span class="text-gray-500">Paper ID: ${insight.paper_id}</span>`
-                        }
                     </div>
+                </button>
+                <div class="paper-content hidden bg-gray-50 p-4">
+                    <div class="mb-4 pb-3 border-b border-gray-200">
+                        <a href="/papers/${paperId}" class="text-blue-600 hover:text-blue-800 text-sm">
+                            View paper details →
+                        </a>
+                    </div>
+                    ${insightCategories}
                 </div>
             </div>
         `;
     }).join('');
 }
 
+// Toggle paper accordion
+function togglePaper(button) {
+    const content = button.nextElementSibling;
+    const icon = button.querySelector('svg');
+    
+    if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        content.classList.add('hidden');
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+// Toggle insight category accordion
+function toggleInsightCategory(button) {
+    const content = button.nextElementSibling;
+    const icon = button.querySelector('svg');
+    
+    if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.style.transform = 'rotate(90deg)';
+    } else {
+        content.classList.add('hidden');
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
 // Get type color
 function getTypeColor(type) {
     switch (type) {
         case 'key_finding': return 'bg-green-100 text-green-800';
+        case 'concept': return 'bg-blue-100 text-blue-800';
+        case 'future_work': return 'bg-purple-100 text-purple-800';
+        case 'application': return 'bg-orange-100 text-orange-800';
         case 'methodology': return 'bg-blue-100 text-blue-800';
         case 'finding': return 'bg-green-100 text-green-800';
         case 'limitation': return 'bg-yellow-100 text-yellow-800';
-        case 'future_work': return 'bg-purple-100 text-purple-800';
         case 'hypothesis': return 'bg-indigo-100 text-indigo-800';
         case 'experiment': return 'bg-orange-100 text-orange-800';
         case 'result': return 'bg-teal-100 text-teal-800';
@@ -253,41 +630,35 @@ function updateCounts(total) {
     document.getElementById('insights-count').textContent = total;
 }
 
-// Show insight details (placeholder)
-function showInsightDetails(insightId) {
-    alert(`Insight details for ${insightId} - This would open a detailed view`);
-}
-
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
+    // Load initial insights
     loadInsights();
     
-    // Type filter
-    document.getElementById('type-filter').addEventListener('change', (e) => {
-        currentFilters.insight_type = e.target.value;
+    // Filter change handlers
+    document.getElementById('type-filter').addEventListener('change', function() {
+        currentFilters.insight_type = this.value;
         loadInsights(1);
     });
     
-    // Confidence filter
-    document.getElementById('confidence-filter').addEventListener('change', (e) => {
-        currentFilters.min_confidence = e.target.value;
+    document.getElementById('confidence-filter').addEventListener('change', function() {
+        currentFilters.min_confidence = this.value;
         loadInsights(1);
     });
     
-    // Sort by
-    document.getElementById('sort-by').addEventListener('change', (e) => {
-        currentFilters.sort_by = e.target.value;
+    document.getElementById('sort-by').addEventListener('change', function() {
+        currentFilters.sort_by = this.value;
         loadInsights(1);
     });
     
-    // Pagination
-    document.getElementById('prev-page').addEventListener('click', () => {
+    // Pagination handlers
+    document.getElementById('prev-page').addEventListener('click', function() {
         if (currentPage > 1) {
             loadInsights(currentPage - 1);
         }
     });
     
-    document.getElementById('next-page').addEventListener('click', () => {
+    document.getElementById('next-page').addEventListener('click', function() {
         if (currentPage < totalPages) {
             loadInsights(currentPage + 1);
         }

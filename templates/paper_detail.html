@@ -31,6 +31,7 @@
                         <span id="paper-date"></span>
                         <span id="paper-type"></span>
                         <span id="paper-citations"></span>
+                        <span id="paper-full-text"></span>
                     </div>
                 </div>
                 <div class="ml-6">
@@ -39,6 +40,22 @@
             </div>
             
             <div id="paper-abstract" class="text-gray-700 leading-relaxed"></div>
+            
+            <!-- Action buttons -->
+            <div class="mt-6 flex gap-3">
+                <button id="view-pdf-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    View PDF with Notes
+                </button>
+                <button id="chat-btn" class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                    Chat about Paper
+                </button>
+            </div>
         </div>
 
         <!-- Insights section -->
@@ -92,8 +109,9 @@
             
             // Other paper details
             document.getElementById('paper-date').textContent = `Published: ${formatDate(data.publication_date)}`;
-            document.getElementById('paper-type').textContent = `Type: ${data.paper_type || 'Unknown'}`;
+            document.getElementById('paper-type').textContent = `Type: ${formatPaperType(data.paper_type) || 'Unknown'}`;
             document.getElementById('paper-citations').textContent = `Citations: ${formatNumber(data.citation_count || 0)}`;
+            document.getElementById('paper-full-text').textContent = data.has_full_text ? '📄 Full Text Available' : '📄 Abstract Only';
             document.getElementById('paper-abstract').textContent = data.abstract || 'No abstract available';
             
             // Analysis status
@@ -115,6 +133,12 @@
                 document.getElementById('tags-list').innerHTML = '<p class="text-gray-500">No tags assigned to this paper.</p>';
             }
             
+            // Show action buttons if paper has full text
+            if (data.has_full_text) {
+                document.getElementById('view-pdf-btn').classList.remove('hidden');
+                document.getElementById('chat-btn').classList.remove('hidden');
+            }
+            
         } catch (error) {
             console.error('Failed to load paper details:', error);
             document.getElementById('loading').classList.add('hidden');
@@ -127,50 +151,188 @@
         const container = document.getElementById('insights-list');
         
         container.innerHTML = insights.map(insight => {
-            // Parse the content if it's a JSON string
-            let contentObj = {};
-            let contentStr = insight.content || '';
+            let contentHtml = '';
             
-            try {
-                if (typeof contentStr === 'string') {
-                    // Handle Python dict string format (single quotes)
-                    if (contentStr.trim().startsWith('{')) {
-                        // Convert Python dict string to JSON format
-                        let jsonStr = contentStr
-                            .replace(/'/g, '"')
-                            .replace(/True/g, 'true')
-                            .replace(/False/g, 'false')
-                            .replace(/None/g, 'null');
-                        contentObj = JSON.parse(jsonStr);
-                    } else {
-                        contentObj = { significance: contentStr };
-                    }
-                } else if (typeof contentStr === 'object') {
-                    contentObj = contentStr;
+            if (insight.insight_type === 'key_finding') {
+                // Handle Key Finding insights
+                try {
+                    const content = JSON.parse(insight.content);
+                    const rubricSections = [
+                        { key: 'problem_solved', title: 'Problem Solved' },
+                        { key: 'practical_impact', title: 'Practical Impact' },
+                        { key: 'evidence_strength', title: 'Evidence Strength' },
+                        { key: 'limitations_and_scope', title: 'Limitations and Scope' },
+                        { key: 'future_work', title: 'Future Work' },
+                        { key: 'confidence_score_explanation', title: 'Confidence Score Explanation' }
+                    ];
+                    
+                    contentHtml = `
+                        <div class="space-y-4">
+                            ${rubricSections.map(section => `
+                                ${content[section.key] ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">${section.title}:</h5>
+                                        <p class="text-gray-700">${content[section.key]}</p>
+                                    </div>
+                                ` : ''}
+                            `).join('')}
+                        </div>
+                    `;
+                } catch (e) {
+                    console.error("Error parsing key finding content:", e);
+                    contentHtml = `<p class="text-red-500">Error parsing key finding content</p>`;
                 }
-            } catch (e) {
-                console.error("Error parsing insight content:", e);
-                contentObj = { significance: contentStr };
+            } else {
+                // Handle position-specific insights (CONCEPT, FUTURE_WORK, APPLICATION)
+                try {
+                    let content;
+                    if (typeof insight.content === 'string') {
+                        // More robust parsing for complex Python dictionary strings
+                        let jsonString = insight.content;
+                        
+                        // First, try the standard JSON parsing
+                        try {
+                            jsonString = jsonString
+                                .replace(/'/g, '\"')  // Replace single quotes with double quotes
+                                .replace(/True/g, 'true')  // Replace Python True with JavaScript true
+                                .replace(/False/g, 'false')  // Replace Python False with JavaScript false
+                                .replace(/None/g, 'null');  // Replace Python None with JavaScript null
+                            
+                            // Additional cleaning for common Python dict string issues
+                            jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas before } or ]
+                            
+                            content = JSON.parse(jsonString);
+                        } catch (parseError1) {
+                            console.warn("First JSON parse failed, trying safe eval:", parseError1, "Original:", insight.content);
+                            // Fallback to safe evaluation for complex Python dictionary strings
+                            try {
+                                // Use new Function for a safer eval, but still be cautious
+                                content = new Function('return ' + insight.content.replace(/'/g, '"'))();
+                            } catch (parseError2) {
+                                console.error("Safe eval also failed:", parseError2, "Original string:", insight.content);
+                                content = { error: "Content available but requires manual parsing or has an invalid structure.", raw: insight.content };
+                            }
+                        }
+                    } else {
+                        content = insight.content; // Already an object
+                    }
+
+                    // Check if content has an error property (from failed parsing) - do this FIRST
+                    if (content && content.error) {
+                        contentHtml = `
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                <h4 class="text-yellow-800 font-semibold mb-2">Content Parsing Issue</h4>
+                                <p class="text-yellow-700 text-sm mb-2">${content.error}</p>
+                                <details class="text-xs">
+                                    <summary class="cursor-pointer text-yellow-600">► Show raw content</summary>
+                                    <pre class="mt-2 text-yellow-800 bg-yellow-100 p-2 rounded overflow-auto">${content.raw}</pre>
+                                </details>
+                            </div>
+                        `;
+                    } else if (insight.insight_type === 'application') {
+                        contentHtml = `
+                            <div class="space-y-4">
+                                ${content.impact_areas ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Impact Areas:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.impact_areas.map(item => `<li><strong>${item.area}:</strong> ${item.description} (Significance: ${item.significance})</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.implementation_guidance ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Implementation Guidance:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.implementation_guidance.map(item => `<li><strong>${item.step}:</strong> ${item.description}</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.success_metrics ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Success Metrics:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.success_metrics.map(item => `<li><strong>${item.metric}:</strong> ${item.description} (Target: ${item.target})</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                            </div>
+                        `;
+                    } else if (insight.insight_type === 'future_work') {
+                        contentHtml = `
+                            <div class="space-y-4">
+                                ${content.challenges_risks ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Challenges & Risks:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.challenges_risks.map(item => `<li><strong>${item.challenge}:</strong> ${item.description} (Mitigation: ${item.mitigation})</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.research_directions ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Research Directions:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.research_directions.map(item => `<li><strong>${item.direction}:</strong> ${item.description} (Priority: ${item.priority})</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.timeline ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Timeline:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.timeline.map(item => `<li><strong>${item.phase}:</strong> ${item.description} (Duration: ${item.duration})</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                            </div>
+                        `;
+                    } else if (insight.insight_type === 'concept') {
+                        contentHtml = `
+                            <div class="space-y-4">
+                                ${content.key_concepts ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Key Concepts:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.key_concepts.map(item => `<li><strong>${item.concept}:</strong> ${item.description}</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.definitions ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Definitions:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.definitions.map(item => `<li><strong>${item.term}:</strong> ${item.definition}</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                                ${content.relationships ? `
+                                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                                        <h5 class="font-semibold text-gray-800 mb-3">Conceptual Relationships:</h5>
+                                        <ul class="list-disc pl-5 space-y-2">
+                                            ${content.relationships.map(item => `<li><strong>${item.from} → ${item.to}:</strong> ${item.relationship}</li>`).join('')}
+                                        </ul>
+                                    </div>` : ''
+                                }
+                            </div>
+                        `;
+                    } else {
+                        contentHtml = `<p class="text-red-500">Unsupported insight type: ${insight.insight_type}</p>`;
+                    }
+                } catch (e) {
+                    console.error("Error displaying insight content:", e, "Raw content:", insight.content);
+                    contentHtml = `<p class="text-red-500">Error displaying content. Raw: ${JSON.stringify(insight.content)}</p>`;
+                }
             }
 
-            const rubricFields = [
-                { key: 'audience_hook', title: 'Audience Hook' },
-                { key: 'problem_solved', title: 'Problem Solved' },
-                { key: 'practical_impact', title: 'Practical Impact' },
-                { key: 'evidence_strength', title: 'Evidence Strength' },
-                { key: 'limitations_and_scope', title: 'Limitations and Scope' },
-                { key: 'future_work', title: 'Future Work' },
-                { key: 'confidence_score_explanation', title: 'Confidence Score Explanation' }
-            ];
-
             return `
-                <div class="border border-gray-200 rounded-lg p-4">
+                <div class="border border-gray-200 rounded-lg p-4 mb-4">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center gap-3">
                             <span class="px-3 py-1 text-xs font-medium rounded-full ${getTypeColor(insight.insight_type)}">
                                 ${insight.insight_type.replace(/_/g, ' ').toUpperCase()}
                             </span>
-                            ${insight.confidence ? `<span class="text-sm text-gray-600">Confidence: ${(insight.confidence * 100).toFixed(0)}%</span>` : ''}
+                            ${insight.confidence ? `<span class="text-sm text-gray-600">Confidence: ${Math.round(insight.confidence * 100)}%</span>` : ''}
                         </div>
                         <div class="text-sm text-gray-500">
                             ${formatDate(insight.created_at)}
@@ -180,16 +342,9 @@
                     <h3 class="text-lg font-semibold text-gray-900 mb-2">${insight.title}</h3>
                     ${insight.description ? `<p class="text-gray-700 mb-3">${insight.description}</p>` : ''}
                     
-                    <!-- Rubric Sections -->
-                    <div class="space-y-3">
-                        ${rubricFields.map(field => `
-                            ${contentObj[field.key] ? `
-                                <div class="bg-gray-100 p-3 rounded-md">
-                                    <h5 class="font-medium text-gray-700">${field.title}:</h5>
-                                    <p class="text-gray-600 text-sm">${contentObj[field.key]}</p>
-                                </div>
-                            ` : ''}
-                        `).join('')}
+                    <!-- Insight Content -->
+                    <div class="prose prose-sm max-w-none">
+                        ${contentHtml}
                     </div>
                 </div>
             `;
@@ -207,6 +362,24 @@
         `).join('');
     }
 
+    // Format paper type
+    function formatPaperType(paperType) {
+        if (!paperType) return 'Unknown';
+        const typeMap = {
+            'empirical_study': 'Empirical Study',
+            'survey_review': 'Survey Review',
+            'conceptual_framework': 'Conceptual Framework',
+            'position_paper': 'Position Paper',
+            'benchmark_comparison': 'Benchmark Comparison',
+            'case_study': 'Case Study',
+            'tutorial': 'Tutorial',
+            'methodology': 'Methodology',
+            'theoretical': 'Theoretical',
+            'experimental': 'Experimental'
+        };
+        return typeMap[paperType] || paperType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
     // Get status color
     function getStatusColor(status) {
         switch (status) {
@@ -222,10 +395,12 @@
     function getTypeColor(type) {
         switch (type) {
             case 'key_finding': return 'bg-green-100 text-green-800';
-            case 'methodology': return 'bg-blue-100 text-blue-800';
+            case 'concept': return 'bg-blue-100 text-blue-800';
+            case 'application': return 'bg-purple-100 text-purple-800';
+            case 'future_work': return 'bg-orange-100 text-orange-800';
+            case 'methodology': return 'bg-indigo-100 text-indigo-800';
             case 'finding': return 'bg-green-100 text-green-800';
             case 'limitation': return 'bg-yellow-100 text-yellow-800';
-            case 'future_work': return 'bg-purple-100 text-purple-800';
             case 'hypothesis': return 'bg-indigo-100 text-indigo-800';
             case 'experiment': return 'bg-orange-100 text-orange-800';
             case 'result': return 'bg-teal-100 text-teal-800';
@@ -235,5 +410,18 @@
 
     // Load paper details when page loads
     document.addEventListener('DOMContentLoaded', loadPaperDetails);
+    
+    // Event handlers for action buttons
+    document.addEventListener('DOMContentLoaded', function() {
+        // View PDF button
+        document.getElementById('view-pdf-btn').addEventListener('click', function() {
+            window.location.href = `/papers/${paperId}/pdf-viewer`;
+        });
+        
+        // Chat button
+        document.getElementById('chat-btn').addEventListener('click', function() {
+            window.location.href = `/chat?paper_id=${paperId}`;
+        });
+    });
 </script>
 {% endblock %} 
